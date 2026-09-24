@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Boxes, Tags } from "lucide-react";
+import { AlertCircle, Boxes, Tags, Bot, Database, CheckCircle, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert } from "@/components/ui/alert";
 
 type Category = {
   id: string;
@@ -24,6 +25,10 @@ export default function ConfiguracionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [checkingAI, setCheckingAI] = useState(false);
+  const [checkingNotion, setCheckingNotion] = useState(false);
+  const [aiStatus, setAiStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [notionStatus, setNotionStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +84,48 @@ export default function ConfiguracionPage() {
     });
     await load();
     setBusyId(null);
+  }
+
+  async function checkAI() {
+    setCheckingAI(true);
+    setAiStatus(null);
+    try {
+      const res = await fetch("/api/config/check/ai", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setAiStatus({ ok: true, message: `Conexión correcta con ${data.provider} (${data.model}).` });
+      } else {
+        setAiStatus({ ok: false, message: data.error || "No se pudo conectar con la IA." });
+      }
+    } catch {
+      setAiStatus({ ok: false, message: "Error inesperado al comprobar la conexión." });
+    } finally {
+      setCheckingAI(false);
+    }
+  }
+
+  async function checkNotion() {
+    setCheckingNotion(true);
+    setNotionStatus(null);
+    try {
+      const res = await fetch("/api/config/check/notion", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setNotionStatus({ ok: true, message: `Conexión correcta con Notion (${data.bot}).` });
+      } else {
+        setNotionStatus({ ok: false, message: data.error || "No se pudo conectar con Notion." });
+      }
+    } catch {
+      setNotionStatus({ ok: false, message: "Error inesperado al comprobar la conexión." });
+    } finally {
+      setCheckingNotion(false);
+    }
   }
 
   if (loading) {
@@ -164,6 +211,73 @@ export default function ConfiguracionPage() {
           </code>
           .
         </p>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-h3">Comprobación de conectividad</h2>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <Bot className="h-5 w-5 text-ink-2" />
+                <div>
+                  <p className="font-medium text-ink">Inteligencia artificial</p>
+                  <p className="text-meta text-ink-3">Verifica que la app puede llamar al proveedor de IA.</p>
+                </div>
+              </div>
+              <Button
+                onClick={checkAI}
+                loading={checkingAI}
+                disabled={checkingAI}
+                className="sm:w-auto w-full"
+              >
+                Comprobar conexión
+              </Button>
+            </div>
+            {aiStatus && (
+              <Alert variant={aiStatus.ok ? "success" : "danger"}>
+                <div className="flex items-start gap-2">
+                  {aiStatus.ok ? (
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{aiStatus.message}</span>
+                </div>
+              </Alert>
+            )}
+            <div className="border-t border-line" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <Database className="h-5 w-5 text-ink-2" />
+                <div>
+                  <p className="font-medium text-ink">Notion</p>
+                  <p className="text-meta text-ink-3">Verifica que el token de Notion es válido.</p>
+                </div>
+              </div>
+              <Button
+                onClick={checkNotion}
+                loading={checkingNotion}
+                disabled={checkingNotion}
+                className="sm:w-auto w-full"
+              >
+                Comprobar conexión
+              </Button>
+            </div>
+            {notionStatus && (
+              <Alert variant={notionStatus.ok ? "success" : "danger"}>
+                <div className="flex items-start gap-2">
+                  {notionStatus.ok ? (
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{notionStatus.message}</span>
+                </div>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
