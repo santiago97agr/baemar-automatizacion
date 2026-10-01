@@ -1,19 +1,24 @@
 import { NextResponse, NextRequest } from "next/server";
 import { z } from "zod";
-import { ActivityTarget } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
-import { callAI, buildPrompt, aiResponseSchema } from "@/lib/ai";
-import { getActiveCategories } from "@/lib/categories";
-import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { classifyEmail } from "@/lib/processing/classify";
+import { decide } from "@/lib/processing/decide";
+import { identifyClientByEmail } from "@/lib/processing/identify-client";
+import { uploadAttachmentToDropbox } from "@/lib/integrations/dropbox";
+import { uploadPendingAttachments } from "@/lib/processing/attachments";
+import { mergeWithCorrections } from "@/lib/processing/reprocess-merge";
+import { NotionSync } from "@/lib/sync/notion-sync";
 
-const schema = z.object({
+const overrideSchema = z.object({
   title: z.string().optional(),
-  type: z.string().optional(),
-  priority: z.enum(["Alta", "Media", "Baja"]).optional(),
+  area: z.string().optional(),
+  priority: z.enum(["Normal", "Alta", "Urgente"]).optional(),
   description: z.string().optional(),
   summary: z.string().optional(),
 });
+
+const notionSync = new NotionSync();
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isValidBasicAuth(request)) return basicAuthResponse();
@@ -21,72 +26,78 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
 
   try {
-    const activity = await prisma.aiActivity.findUnique({ where: { id } });
-    if (!activity) {
+    const communication = await prisma.communication.findUnique({ where: { id } });
+    if (!communication) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const body = await request.json().catch(() => ({}));
-    const overrides = schema.parse(body);
+    const overrides = overrideSchema.parse(body);
 
-    const categories = await getActiveCategories();
-    const context = await prisma.feedback.findMany({
-      where: { active: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    });
+    const identifyResult = communication.clientId
+      ? { clientId: communication.clientId, ambiguous: false as const }
+      : await identifyClientByEmail(prisma, communication.from);
 
-    const prompt = buildPrompt(
-      { subject: activity.subject, from: activity.from, body: activity.body },
-      context,
-      categories
+    const classification = await classifyEmail(
+      { subject: communication.subject, from: communication.from, body: communication.body },
+      identifyResult,
+      prisma
     );
-    const aiText = await callAI(prompt);
 
-    const cleaned = aiText.replace(/```json|```/g, "").trim();
-    const rawParsed = JSON.parse(cleaned);
-    const parsed = aiResponseSchema.parse(rawParsed);
+    // Respetar correcciones manuales salvo que el usuario envíe un override explícito.
+    const merged = mergeWithCorrections(classification, communication, overrides);
 
-    const needsReview = parsed.needsReview ?? false;
+    const decision = await decide(
+      { prisma },
+      { communicationId: id, subject: communication.subject, channel: communication.channel, from: communication.from },
+      identifyResult,
+      merged
+    );
 
-    const updated = await prisma.aiActivity.update({
-      where: { id },
-      data: {
-        title: overrides.title ?? parsed.title ?? activity.title,
-        type: overrides.type ?? parsed.type ?? activity.type,
-        priority: overrides.priority ?? parsed.priority ?? activity.priority,
-        description: overrides.description ?? parsed.description ?? activity.description,
-        summary: overrides.summary ?? parsed.summary ?? activity.summary,
-        aiRaw: cleaned,
-        needsReview,
-        reviewReason: parsed.reviewReason || null,
-        reviewStatus: needsReview ? "pending" : "reviewed",
-        status: "ok",
-        errorMessage: null,
-      },
-      include: { targets: true },
-    });
+    // Sincronizar adjuntos y Notion tras el reproceso.
+    await uploadPendingAttachments(
+      { prisma, uploadAttachment: uploadAttachmentToDropbox },
+      decision.communication,
+      merged.relevance
+    );
 
-    await prisma.activityTarget.deleteMany({ where: { activityId: id } });
-
-    let targets: ActivityTarget[] = [];
-    if (!needsReview) {
-      targets = await pushActivityToIntegrations(updated);
+    if (!decision.communication.needsReview) {
+      try {
+        await notionSync.syncFromDecision(
+          { prisma },
+          {
+            communication: decision.communication,
+            task: decision.task ? { id: decision.task.id, clientId: decision.task.clientId } : undefined,
+            isNewTask: decision.isNewTask,
+            isNewClient: false,
+          }
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Notion sync error";
+        await prisma.errorLog.create({ data: { source: "sync", message: msg, communicationId: id } });
+      }
     }
 
-    return NextResponse.json({ activity: updated, targets, needsReview });
+    const updated = await prisma.communication.update({
+      where: { id },
+      data: { processingStatus: "done" },
+      include: { targets: true, feedback: { orderBy: { createdAt: "desc" } } },
+    });
+
+    return NextResponse.json({ activity: updated, needsReview: updated.needsReview });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.issues }, { status: 400 });
     }
     const message = err instanceof Error ? err.message : "Reprocess error";
-    await prisma.aiActivity.update({
+    await prisma.communication.update({
       where: { id },
       data: { status: "error", errorMessage: message },
     });
     await prisma.errorLog.create({
-      data: { source: "ia", message, activityId: id },
+      data: { source: "ia", message, communicationId: id },
     });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+

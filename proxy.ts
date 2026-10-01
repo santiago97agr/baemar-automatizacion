@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from "next/server";
 
-const INTERNAL_PATHS = ["/api/context", "/api/webhook"];
+const INTERNAL_PATHS = ["/api/context", "/api/webhook", "/api/process", "/api/errors"];
 
 function isInternalPath(pathname: string): boolean {
   return INTERNAL_PATHS.some((p) => pathname.startsWith(p));

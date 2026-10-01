@@ -10,7 +10,7 @@ export class ErpIntegration implements Integration {
     return {
       status: "pending",
       payload: {
-        activityId: activity.id,
+        communicationId: activity.id,
         messageId: activity.messageId,
         subject: activity.subject,
         from: activity.from,

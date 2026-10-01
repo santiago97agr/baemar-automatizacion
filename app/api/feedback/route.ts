@@ -5,7 +5,7 @@ import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 import { pushActivityToIntegrations } from "@/lib/integrations/push";
 
 const createSchema = z.object({
-  activityId: z.string().min(1),
+  communicationId: z.string().min(1),
   emailMessageId: z.string().optional(),
   type: z.enum(["correction", "comment"]),
   text: z.string().min(1),
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const feedback = await prisma.feedback.findMany({
       where: activeOnly ? { active: true } : undefined,
       orderBy: { createdAt: "desc" },
-      include: { activity: { select: { id: true, title: true, subject: true } } },
+      include: { communication: { select: { id: true, title: true, subject: true } } },
     });
 
     return NextResponse.json({ feedback });
@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = createSchema.parse(body);
 
-    const activity = await prisma.aiActivity.findUnique({
-      where: { id: data.activityId },
+    const activity = await prisma.communication.findUnique({
+      where: { id: data.communicationId },
       include: { targets: true },
     });
 
@@ -49,15 +49,15 @@ export async function POST(request: NextRequest) {
 
     const feedback = await prisma.feedback.create({
       data: {
-        activityId: data.activityId,
+        communicationId: data.communicationId,
         emailMessageId: data.emailMessageId || null,
         type: data.type,
         text: data.text,
       },
     });
 
-    await prisma.aiActivity.update({
-      where: { id: data.activityId },
+    await prisma.communication.update({
+      where: { id: data.communicationId },
       data: { reviewStatus: "reviewed", needsReview: false },
     });
 

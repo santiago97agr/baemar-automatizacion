@@ -1,9 +1,7 @@
 import { Integration, IntegrationType } from "./types";
-import { NotionIntegration } from "./notion";
 import { ErpIntegration } from "./erp";
 
 const INTEGRATION_MAP: Record<IntegrationType, () => Integration> = {
-  notion: () => new NotionIntegration(),
   erp: () => new ErpIntegration(),
 };
 

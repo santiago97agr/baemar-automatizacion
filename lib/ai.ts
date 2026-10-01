@@ -1,9 +1,18 @@
 import { z } from "zod";
 
+export const priorityValues = ["Normal", "Alta", "Urgente"] as const;
+export const areaValues = [
+  "Fiscal",
+  "Laboral",
+  "Contable",
+  "Jurídico-Mercantil",
+  "Administración",
+] as const;
+
 export const aiResponseSchema = z.object({
   title: z.string().optional(),
-  type: z.string().optional(),
-  priority: z.enum(["Alta", "Media", "Baja"]).optional(),
+  type: z.enum(areaValues).optional(),
+  priority: z.enum(priorityValues).optional(),
   description: z.string().optional(),
   summary: z.string().optional(),
   needsReview: z.boolean().optional(),
@@ -11,6 +20,22 @@ export const aiResponseSchema = z.object({
 });
 
 export type AiResponse = z.infer<typeof aiResponseSchema>;
+
+export const classifiedResponseSchema = z.object({
+  relevance: z.enum(["irrelevant", "info", "action"]),
+  area: z.enum(areaValues).optional(),
+  priority: z.enum(priorityValues).optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  clientName: z.string().optional(),
+  matchedTaskId: z.string().optional(),
+  isNewTask: z.boolean().optional(),
+  needsReview: z.boolean().optional(),
+  reviewReason: z.string().optional(),
+});
+
+export type ClassifiedResponse = z.infer<typeof classifiedResponseSchema>;
 
 export async function callAI(prompt: string): Promise<string> {
   const provider = process.env.AI_PROVIDER || "openai";
@@ -56,10 +81,27 @@ export async function callAI(prompt: string): Promise<string> {
   return data.choices?.[0]?.message?.content || "";
 }
 
+export type OpenTaskHint = {
+  id: string;
+  title: string;
+  area: string | null;
+  status: string;
+  summary: string;
+};
+
+export type ClientHint = {
+  id: string;
+  name: string;
+  emails: string[];
+  areas?: string[];
+};
+
 export function buildPrompt(
   email: { subject: string; from: string; body: string },
   context: { type: string; text: string }[],
-  categories: string[]
+  categories: string[],
+  clients: ClientHint[],
+  matchedClient?: { id: string; name: string; openTasks: OpenTaskHint[] }
 ): string {
   const contextText = context.length
     ? `Contexto previo de correcciones/comentarios del usuario:\n${context
@@ -68,28 +110,56 @@ export function buildPrompt(
     : "No hay contexto previo.";
 
   const categoriesText = categories.length
-    ? `Clasifica la tarea en UNA de estas categorías: ${categories.join(", ")}.`
-    : "Elige una categoría apropiada para la gestoría.";
+    ? `Clasifica en UNA de estas áreas: ${categories.join(", ")}.`
+    : "Elige el área más adecuada.";
 
-  return `Eres un asistente de una gestoría. Interpreta el siguiente correo y extrae una tarea clara para el equipo.
+  const clientsText =
+    clients.length === 0
+      ? "No hay clientes dados de alta."
+      : `Clientes dados de alta (nombre + emails):\n${clients
+          .map((c) => `- ${c.name}: ${c.emails.join(", ")}`)
+          .join("\n")}`;
+
+  const matchedClientText = matchedClient
+    ? `Cliente identificado automáticamente por el remitente: ${matchedClient.name} (${matchedClient.id}).\nTareas abiertas de este cliente (solo puedes vincular a una de estas):\n${matchedClient.openTasks
+        .map((t) => `- id=${t.id} | ${t.title} | área=${t.area ?? "sin área"} | estado=${t.status} | resumen=${t.summary}`)
+        .join("\n")}`
+    : "No se ha identificado cliente automáticamente.";
+
+  return `Eres un asistente de una gestoría. Recibes una comunicación entrante y debes clasificarla con precisión sin inventar datos.
 
 ${contextText}
 
 ${categoriesText}
 
-Asunto: ${email.subject}
-Remitente: ${email.from}
-Cuerpo:
+${clientsText}
+
+${matchedClientText}
+
+Comunicación:
+- Asunto: ${email.subject}
+- Remitente: ${email.from}
+- Cuerpo:
 ${email.body}
 
 Devuelve ÚNICAMENTE un objeto JSON válido con estas claves:
-- title: título corto de la tarea
-- type: tipo/categoría de la tarea
-- priority: "Alta", "Media" o "Baja"
-- description: descripción de la acción a realizar
-- summary: resumen breve del correo para el histórico
-- needsReview: true si necesitas que un humano revise antes de actuar (datos insuficientes, ambigüedad, importancia alta), false si estás seguro
-- reviewReason: breve explicación de por qué necesita revisión (solo si needsReview es true)
+- relevance: "irrelevant" si no tiene interés para el despacho, "info" si es informativa pero no requiere actuación, "action" si requiere una actuación del despacho
+- area: una de las áreas listadas arriba (opcional)
+- priority: "Normal", "Alta" o "Urgente" (solo si relevance=action)
+- title: título corto de la posible tarea (solo si relevance=action)
+- description: descripción de la acción a realizar (solo si relevance=action)
+- summary: resumen breve de la comunicación para el histórico
+- clientName: nombre del cliente que propones, si lo identificas con claridad
+- matchedTaskId: id de una de las tareas abiertas listadas arriba si crees que la comunicación aporta información o modifica esa tarea; si no, omítelo
+- isNewTask: true si crees que hay que crear una tarea nueva; false u omitido si se vincula a una existente
+- needsReview: true si hay dudas sobre el cliente, la tarea o la importancia; false si estás seguro
+- reviewReason: breve explicación (solo si needsReview es true)
+
+Normas:
+- No inventes clientes, tareas, plazos, importes ni responsables.
+- Si no identificas al cliente o hay varios candidatos, devuelve needsReview=true.
+- No fusiones dos tareas distintas solo porque el asunto sea similar.
+- Un email que solo confirma, agradece o informa sin pedir nada se considera "info".
 
 No añadas explicaciones ni markdown, solo JSON.`;
 }

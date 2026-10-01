@@ -6,7 +6,7 @@ import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 const createSchema = z.object({
   source: z.enum(["n8n", "ia", "notion", "processing", "erp"]),
   message: z.string().min(1),
-  activityId: z.string().optional(),
+  communicationId: z.string().optional(),
   messageId: z.string().optional(),
 });
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
         ...(resolved !== null ? { resolved: resolved === "true" } : {}),
       },
       orderBy: { createdAt: "desc" },
-      include: { activity: { select: { id: true, title: true, subject: true, messageId: true } } },
+      include: { communication: { select: { id: true, title: true, subject: true, messageId: true } } },
     });
 
     return NextResponse.json({ errors });
@@ -46,20 +46,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = createSchema.parse(body);
 
-    let activityId = data.activityId;
-    if (!activityId && data.messageId) {
-      const activity = await prisma.aiActivity.findUnique({
+    let communicationId = data.communicationId;
+    if (!communicationId && data.messageId) {
+      const activity = await prisma.communication.findUnique({
         where: { messageId: data.messageId },
         select: { id: true },
       });
-      if (activity) activityId = activity.id;
+      if (activity) communicationId = activity.id;
     }
 
     const errorLog = await prisma.errorLog.create({
       data: {
         source: data.source,
         message: data.message,
-        activityId,
+        communicationId,
       },
     });
 

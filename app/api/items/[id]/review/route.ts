@@ -2,6 +2,9 @@ import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { NotionSync } from "@/lib/sync/notion-sync";
+
+const notionSync = new NotionSync();
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isValidBasicAuth(request)) return basicAuthResponse();
@@ -9,7 +12,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
 
   try {
-    let activity = await prisma.aiActivity.findUnique({
+    let activity = await prisma.communication.findUnique({
       where: { id },
       include: { targets: true },
     });
@@ -22,7 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ activity });
     }
 
-    activity = await prisma.aiActivity.update({
+    activity = await prisma.communication.update({
       where: { id },
       data: { reviewStatus: "reviewed", needsReview: false },
       include: { targets: true },
@@ -31,7 +34,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const existingTargets = activity.targets.filter((t) => t.status !== "error").length;
     if (existingTargets === 0) {
       await pushActivityToIntegrations(activity);
-      activity = await prisma.aiActivity.findUnique({
+      try {
+        await notionSync.syncFromDecision(
+          { prisma },
+          {
+            communication: activity,
+            task: activity.taskId ? { id: activity.taskId, clientId: activity.clientId || "" } : undefined,
+            isNewTask: false,
+            isNewClient: false,
+          }
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Notion sync error";
+        await prisma.errorLog.create({ data: { source: "sync", message: msg, communicationId: id } });
+      }
+      activity = await prisma.communication.findUnique({
         where: { id },
         include: { targets: true },
       });

@@ -11,16 +11,21 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status");
   const type = searchParams.get("type");
 
-  const where: Prisma.AiActivityWhereInput = {};
+  const where: Prisma.CommunicationWhereInput = {};
   if (reviewStatus) where.reviewStatus = reviewStatus;
   if (status) where.status = status;
   if (type) where.type = type;
 
   try {
-    const activities = await prisma.aiActivity.findMany({
+    const activities = await prisma.communication.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { targets: true, feedback: { take: 1, orderBy: { createdAt: "desc" } } },
+      include: {
+        targets: true,
+        client: true,
+        task: true,
+        feedback: { take: 1, orderBy: { createdAt: "desc" } },
+      },
     });
 
     return NextResponse.json({ items: activities });

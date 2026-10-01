@@ -1,507 +1,307 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertTriangle, FileX, Paperclip } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle, Paperclip, RefreshCw, User, Briefcase, Plus } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import { Alert } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  ReviewStatusBadge,
-  TargetStatusBadge,
-} from "@/components/status-badges";
-import { formatBytes, formatDateTime } from "@/lib/format";
-import { feedbackTypeLabel, targetLabel } from "@/lib/labels";
+import { ReviewStatusBadge } from "@/components/status-badges";
+import { formatDateTime } from "@/lib/format";
+import { relevanceLabel, uploadStatusLabel } from "@/lib/labels";
 
-type Target = {
-  id: string;
-  targetType: string;
-  targetId: string | null;
-  targetUrl: string | null;
-  status: string;
-  errorMessage: string | null;
-};
-
-type FeedbackItem = {
-  id: string;
-  type: string;
-  text: string;
-  createdAt: string;
-};
-
-type Activity = {
-  id: string;
-  messageId: string;
-  subject: string;
-  from: string;
-  body: string;
-  attachments: string | null;
-  title: string;
-  type: string;
-  priority: string;
-  description: string;
-  summary: string;
-  aiRaw: string;
-  needsReview: boolean;
-  reviewReason: string | null;
-  reviewStatus: string;
-  status: string;
-  errorMessage: string | null;
-  createdAt: string;
-  targets: Target[];
-  feedback: FeedbackItem[];
-};
-
-function DetailSkeleton() {
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <Skeleton className="h-8 w-2/3" />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-4">
-          <Skeleton className="h-80" />
-        </div>
-        <div className="space-y-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-96" />
-          <Skeleton className="h-40" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function ItemDetailPage() {
+export default function CommunicationDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [activity, setActivity] = useState<Activity | null>(null);
+  const [activity, setActivity] = useState<any>(null);
+  const [clients, setClients] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [reprocessing, setReprocessing] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    title: "",
-    type: "",
-    priority: "Media",
-    description: "",
-    summary: "",
-    feedbackText: "",
-  });
-
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/items/${id}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Error cargando actividad");
-      const data = await res.json();
-      setActivity(data.activity);
-      setForm((f) => ({
-        ...f,
-        title: data.activity.title,
-        type: data.activity.type,
-        priority: data.activity.priority,
-        description: data.activity.description,
-        summary: data.activity.summary,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  const [assignForm, setAssignForm] = useState({ clientId: "", taskId: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", area: "", priority: "Normal" });
+  const [correctForm, setCorrectForm] = useState({ title: "", type: "", priority: "Normal", description: "", summary: "", feedbackText: "" });
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  async function submitCorrection(e: React.FormEvent) {
-    e.preventDefault();
     if (!id) return;
-    setSaving(true);
-    setSaveMsg(null);
+    load();
+    fetch("/api/clients", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setClients(d.clients || []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-    const res = await fetch(`/api/items/${id}/correct`, {
+  async function load() {
+    setLoading(true);
+    const res = await fetch(`/api/items/${id}`, { credentials: "include" });
+    if (res.ok) {
+      const d = await res.json();
+      setActivity(d.activity);
+      setCorrectForm({
+        title: d.activity.title,
+        type: d.activity.type,
+        priority: d.activity.priority,
+        description: d.activity.description,
+        summary: d.activity.summary,
+        feedbackText: "",
+      });
+      if (d.activity.clientId) {
+        const t = await fetch(`/api/tasks?clientId=${d.activity.clientId}`, { credentials: "include" }).then((r) => r.json());
+        setTasks(t.tasks || []);
+      }
+    }
+    setLoading(false);
+  }
+
+  async function doAction(name: string, url: string, body?: unknown) {
+    setActionLoading(name);
+    const res = await fetch(url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: body ? JSON.stringify(body) : undefined,
     });
-
-    setSaving(false);
-    if (res.ok) {
-      setSaveMsg("Corrección guardada.");
-      setForm((f) => ({ ...f, feedbackText: "" }));
-      await load();
-    } else {
-      setSaveMsg("Error guardando corrección.");
-    }
+    setActionLoading(null);
+    if (res.ok) load();
   }
 
-  async function markReviewed() {
-    if (!id) return;
-    const res = await fetch(`/api/items/${id}/review`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (res.ok) await load();
+  async function submitCorrection(e: React.FormEvent) {
+    e.preventDefault();
+    await doAction("correct", `/api/items/${id}/correct`, correctForm);
   }
 
-  async function reprocess() {
-    if (!id) return;
-    setReprocessing(true);
-    const res = await fetch(`/api/items/${id}/reprocess`, {
-      method: "POST",
-      credentials: "include",
-    });
-    setReprocessing(false);
-    if (res.ok) {
-      setSaveMsg("Reprocesado.");
-      await load();
-    } else {
-      setSaveMsg("Error al reprocesar.");
-    }
-  }
-
-  if (loading) return <DetailSkeleton />;
-
-  if (error) {
+  if (loading || !activity) {
     return (
-      <div className="mx-auto max-w-6xl">
-        <PageHeader title="Detalle" />
-        <Alert variant="danger">{error}</Alert>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <Skeleton className="h-32" />
+        <Skeleton className="h-64" />
       </div>
     );
   }
-
-  if (!activity) {
-    return (
-      <div className="mx-auto max-w-6xl">
-        <PageHeader title="Detalle" />
-        <EmptyState
-          icon={<FileX className="h-8 w-8" />}
-          title="No encontrado"
-          description="La actividad que buscas no existe."
-        />
-      </div>
-    );
-  }
-
-  const attachments: { filename: string; contentType?: string; size?: number }[] =
-    activity.attachments ? JSON.parse(activity.attachments) : [];
-
-  const saveVariant =
-    saveMsg && saveMsg.toLowerCase().startsWith("error")
-      ? "danger"
-      : "success";
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <PageHeader
-        title={activity.title}
-        description={`${activity.from} · ${activity.subject}`}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              onClick={reprocess}
-              loading={reprocessing}
-              disabled={reprocessing}
-            >
-              Reprocesar
-            </Button>
-            {activity.reviewStatus === "pending" && (
-              <Button variant="secondary" onClick={markReviewed}>
-                Marcar revisado
-              </Button>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader title={activity.title || activity.subject} description={activity.subject} />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card><CardContent className="p-4"><p className="text-meta text-ink-3">Canal</p><p className="text-h3">{activity.channel}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-meta text-ink-3">Dirección</p><p className="text-h3">{activity.direction}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-meta text-ink-3">Relevancia</p><p className="text-h3">{relevanceLabel(activity.relevance)}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-meta text-ink-3">Revisión</p><ReviewStatusBadge status={activity.reviewStatus} /></CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader><h2 className="text-h3">Cliente y tarea</h2></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <User className="h-4 w-4 text-ink-3" />
+            {activity.client ? (
+              <Link href={`/clientes/${activity.client.id}`} className="font-medium hover:text-accent hover:underline">
+                {activity.client.name}
+              </Link>
+            ) : (
+              <span className="text-ink-3">Sin cliente asignado</span>
             )}
           </div>
-        }
-      />
+          <div className="flex flex-wrap items-center gap-3">
+            <Briefcase className="h-4 w-4 text-ink-3" />
+            {activity.task ? (
+              <Link href={`/tareas/${activity.task.id}`} className="font-medium hover:text-accent hover:underline">
+                {activity.task.title}
+              </Link>
+            ) : (
+              <span className="text-ink-3">Sin tarea vinculada</span>
+            )}
+          </div>
 
-      {saveMsg && (
-        <Alert variant={saveVariant} className="mb-6">
-          {saveMsg}
-        </Alert>
-      )}
-
-      {activity.status === "error" && (
-        <Alert variant="danger" className="mb-6">
-          <p className="font-medium">Error de procesamiento</p>
-          {activity.errorMessage && (
-            <p className="mt-0.5">{activity.errorMessage}</p>
-          )}
-        </Alert>
-      )}
-
-      <div className="grid gap-6 md:grid-cols-2 md:items-start">
-        {/* Email */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <h2 className="text-h3">Email</h2>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-meta font-medium text-ink-3">Remitente</p>
-                  <p className="mt-0.5 text-body text-ink">{activity.from}</p>
-                </div>
-                <div>
-                  <p className="text-meta font-medium text-ink-3">Fecha</p>
-                  <p className="mt-0.5 text-body tabular text-ink">
-                    {formatDateTime(activity.createdAt)}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-meta font-medium text-ink-3">Asunto</p>
-                <p className="mt-0.5 text-body font-medium text-ink">
-                  {activity.subject}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-meta font-medium text-ink-3">Message ID</p>
-                <p className="mt-0.5 text-body tabular text-ink-3 break-all">
-                  {activity.messageId}
-                </p>
-              </div>
-
-              {activity.body && (
-                <div>
-                  <p className="text-meta font-medium text-ink-3">Cuerpo</p>
-                  <div className="mt-1.5 rounded border border-line bg-highlight p-3 text-body text-ink whitespace-pre-wrap">
-                    {activity.body}
-                  </div>
-                </div>
-              )}
-
-              {attachments.length > 0 && (
-                <div>
-                  <p className="text-meta font-medium text-ink-3">Adjuntos</p>
-                  <ul className="mt-1.5 space-y-1.5">
-                    {attachments.map((a, i) => (
-                      <li
-                        key={i}
-                        className="flex items-center gap-2 text-body text-ink-2"
-                      >
-                        <Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        <span>{a.filename}</span>
-                        {a.size ? (
-                          <span className="text-meta text-ink-3">
-                            ({formatBytes(a.size)})
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* IA interpretation + corrections */}
-        <div className="space-y-6">
-          {activity.needsReview && activity.reviewReason && (
-            <Alert variant="warning">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <div>
-                  <p className="font-medium">Necesita revisión</p>
-                  <p className="mt-0.5">{activity.reviewReason}</p>
-                </div>
-              </div>
-            </Alert>
-          )}
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <h2 className="text-h3">Interpretación de la IA</h2>
-                <ReviewStatusBadge status={activity.reviewStatus} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={submitCorrection} className="space-y-4">
-                <Field label="Título" htmlFor="title">
-                  <Input
-                    id="title"
-                    value={form.title}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, title: e.target.value }))
-                    }
-                    required
-                  />
-                </Field>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Categoría" htmlFor="type">
-                    <Input
-                      id="type"
-                      value={form.type}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, type: e.target.value }))
-                      }
-                      required
-                    />
-                  </Field>
-                  <Field label="Prioridad" htmlFor="priority">
-                    <Select
-                      id="priority"
-                      value={form.priority}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          priority: e.target.value as "Alta" | "Media" | "Baja",
-                        }))
-                      }
-                    >
-                      <option value="Alta">Alta</option>
-                      <option value="Media">Media</option>
-                      <option value="Baja">Baja</option>
-                    </Select>
-                  </Field>
-                </div>
-
-                <Field label="Descripción / acción" htmlFor="description">
-                  <Textarea
-                    id="description"
-                    value={form.description}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, description: e.target.value }))
-                    }
-                    rows={3}
-                  />
-                </Field>
-
-                <Field label="Resumen del correo" htmlFor="summary">
-                  <Textarea
-                    id="summary"
-                    value={form.summary}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, summary: e.target.value }))
-                    }
-                    rows={2}
-                  />
-                </Field>
-
-                <Field
-                  label="Feedback opcional"
-                  htmlFor="feedbackText"
-                  hint="Explica qué estaba mal para que la IA lo tenga en cuenta"
-                >
-                  <Textarea
-                    id="feedbackText"
-                    value={form.feedbackText}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, feedbackText: e.target.value }))
-                    }
-                    rows={2}
-                    placeholder="Por ejemplo: la fecha límite es el 15, no el 20"
-                  />
-                </Field>
-
-                <div className="pt-2">
-                  <Button type="submit" loading={saving} disabled={saving}>
-                    Guardar corrección
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <h2 className="text-h3">Destinos</h2>
-            </CardHeader>
-            <CardContent>
-              {activity.targets.length === 0 ? (
-                <p className="text-body text-ink-2">
-                  Aún no se ha enviado a ningún destino.
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {activity.targets.map((t) => (
-                    <li
-                      key={t.id}
-                      className="flex items-start justify-between gap-4 rounded border border-line p-3"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-ink">
-                            {targetLabel(t.targetType)}
-                          </span>
-                          <TargetStatusBadge status={t.status} />
-                        </div>
-                        {t.errorMessage && (
-                          <p className="mt-1 text-meta text-danger-text">
-                            {t.errorMessage}
-                          </p>
-                        )}
-                      </div>
-                      {t.targetUrl && (
-                        <a
-                          href={t.targetUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="shrink-0 text-meta font-medium text-accent hover:underline"
-                        >
-                          Ver en {targetLabel(t.targetType)}
-                        </a>
-                      )}
-                    </li>
+          {!activity.client && (
+            <div className="grid gap-3 border-t border-line pt-4 sm:grid-cols-4">
+              <Field label="Asignar cliente" className="sm:col-span-2">
+                <Select value={assignForm.clientId} onChange={(e) => setAssignForm({ ...assignForm, clientId: e.target.value, taskId: "" })}>
+                  <option value="">Seleccionar...</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-
-          {activity.feedback.length > 0 && (
-            <Card>
-              <CardHeader>
-                <h2 className="text-h3">Feedback previo</h2>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3">
-                  {activity.feedback.map((f) => (
-                    <li key={f.id} className="rounded border border-line p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-ink">
-                          {feedbackTypeLabel(f.type)}
-                        </span>
-                        <span className="text-meta tabular text-ink-3">
-                          {formatDateTime(f.createdAt)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-body text-ink-2">{f.text}</p>
-                    </li>
+                </Select>
+              </Field>
+              <Field label="Tarea (opcional)">
+                <Select value={assignForm.taskId} onChange={(e) => setAssignForm({ ...assignForm, taskId: e.target.value })}>
+                  <option value="">Ninguna</option>
+                  {tasks.map((t) => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
                   ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-
-          <details className="rounded border border-line bg-surface">
-            <summary className="cursor-pointer select-none p-4 text-meta font-medium text-ink-2 hover:text-ink">
-              Ver salida bruta de la IA
-            </summary>
-            <div className="border-t border-line bg-highlight p-4">
-              <pre className="overflow-x-auto text-meta text-ink-2 whitespace-pre-wrap">
-                {activity.aiRaw}
-              </pre>
+                </Select>
+              </Field>
+              <div className="flex items-end">
+                <Button onClick={() => doAction("assign", `/api/items/${id}/assign`, assignForm)} loading={actionLoading === "assign"}>
+                  Asignar
+                </Button>
+              </div>
             </div>
-          </details>
-        </div>
-      </div>
+          )}
+
+          {activity.client && !activity.task && (
+            <div className="grid gap-3 border-t border-line pt-4 sm:grid-cols-5">
+              <Field label="Vincular a tarea existente" className="sm:col-span-3">
+                <Select value="" onChange={(e) => doAction("link-task", `/api/items/${id}/link-task`, { taskId: e.target.value })}>
+                  <option value="">Seleccionar tarea...</option>
+                  {tasks.map((t) => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="flex items-end sm:col-span-2">
+                <Button variant="secondary" onClick={() => doAction("create-task", `/api/items/${id}/create-task`, taskForm)} loading={actionLoading === "create-task"}>
+                  <Plus className="mr-1 h-4 w-4" /> Crear tarea
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {activity.client && !activity.task && (
+        <Card>
+          <CardHeader><h2 className="text-h3">Crear tarea desde esta comunicación</h2></CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                doAction("create-task", `/api/items/${id}/create-task`, taskForm);
+              }}
+              className="grid gap-3 sm:grid-cols-5"
+            >
+              <Field label="Título" className="sm:col-span-2">
+                <Input value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
+              </Field>
+              <Field label="Área">
+                <Input value={taskForm.area} onChange={(e) => setTaskForm({ ...taskForm, area: e.target.value })} />
+              </Field>
+              <Field label="Prioridad">
+                <Select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                  <option>Normal</option>
+                  <option>Alta</option>
+                  <option>Urgente</option>
+                </Select>
+              </Field>
+              <div className="flex items-end">
+                <Button type="submit" loading={actionLoading === "create-task"}>
+                  <Plus className="mr-1 h-4 w-4" /> Crear
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><h2 className="text-h3">Correo original</h2></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-meta"><strong>De:</strong> {activity.from}</p>
+          {activity.to && <p className="text-meta"><strong>Para:</strong> {activity.to}</p>}
+          <p className="text-meta"><strong>Fecha:</strong> {formatDateTime(activity.receivedAt)}</p>
+          {activity.externalRef && <p className="text-meta"><strong>Referencia:</strong> {activity.externalRef}</p>}
+          <div className="rounded border border-line bg-surface p-3 text-body whitespace-pre-wrap">{activity.body}</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><h2 className="text-h3 flex items-center gap-2"><Paperclip className="h-4 w-4" /> Adjuntos</h2></CardHeader>
+        <CardContent className="p-0">
+          {activity.files.length === 0 ? (
+            <div className="p-6">
+              <EmptyState icon={<Paperclip className="h-8 w-8" />} title="Sin adjuntos" description="Esta comunicación no tiene archivos adjuntos." />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableHead>Fichero</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Intentos</TableHead>
+                <TableHead />
+              </TableHeader>
+              <TableBody>
+                {activity.files.map((a: any) => (
+                  <TableRow key={a.id}>
+                    <TableCell>{a.filename}</TableCell>
+                    <TableCell>{uploadStatusLabel(a.uploadStatus)}</TableCell>
+                    <TableCell>{a.attempts}</TableCell>
+                    <TableCell>
+                      {a.uploadStatus !== "uploaded" && (
+                        <Button variant="secondary" size="sm" onClick={() => doAction(`retry-${a.id}`, `/api/attachments/${a.id}/retry`)} loading={actionLoading === `retry-${a.id}`}>
+                          Reintentar
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><h2 className="text-h3">Corrección / aprobación</h2></CardHeader>
+        <CardContent>
+          <form onSubmit={submitCorrection} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Título">
+                <Input value={correctForm.title} onChange={(e) => setCorrectForm({ ...correctForm, title: e.target.value })} required />
+              </Field>
+              <Field label="Área / categoría">
+                <Input value={correctForm.type} onChange={(e) => setCorrectForm({ ...correctForm, type: e.target.value })} required />
+              </Field>
+              <Field label="Prioridad">
+                <Select value={correctForm.priority} onChange={(e) => setCorrectForm({ ...correctForm, priority: e.target.value as any })}>
+                  <option>Normal</option>
+                  <option>Alta</option>
+                  <option>Urgente</option>
+                </Select>
+              </Field>
+            </div>
+            <Field label="Descripción / acción">
+              <Textarea value={correctForm.description} onChange={(e) => setCorrectForm({ ...correctForm, description: e.target.value })} rows={3} />
+            </Field>
+            <Field label="Resumen del correo">
+              <Textarea value={correctForm.summary} onChange={(e) => setCorrectForm({ ...correctForm, summary: e.target.value })} rows={3} />
+            </Field>
+            <Field label="Comentario o corrección para la IA">
+              <Textarea value={correctForm.feedbackText} onChange={(e) => setCorrectForm({ ...correctForm, feedbackText: e.target.value })} rows={2} />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" loading={actionLoading === "correct"}>Guardar corrección</Button>
+              <Button type="button" variant="secondary" onClick={() => doAction("review", `/api/items/${id}/review`)} loading={actionLoading === "review"}>
+                <CheckCircle className="mr-1 h-4 w-4" /> Marcar revisado
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => doAction("reprocess", `/api/items/${id}/reprocess`)} loading={actionLoading === "reprocess"}>
+                <RefreshCw className="mr-1 h-4 w-4" /> Reprocesar con IA
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => doAction("retry-sync", `/api/items/${id}/retry-sync`)} loading={actionLoading === "retry-sync"}>
+                <RefreshCw className="mr-1 h-4 w-4" /> Reintentar sync Notion
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {activity.aiRaw && (
+        <Card>
+          <CardHeader><h2 className="text-h3">Respuesta de la IA (bruto)</h2></CardHeader>
+          <CardContent>
+            <pre className="overflow-x-auto rounded bg-highlight p-3 text-meta">{activity.aiRaw}</pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

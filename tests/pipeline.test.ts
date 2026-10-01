@@ -1,0 +1,191 @@
+import { describe, it, before, beforeEach, after } from "node:test";
+import assert from "node:assert/strict";
+import { PrismaClient } from "@prisma/client";
+import { processCommunication } from "@/lib/processing/pipeline";
+import type { ClassifiedResponse } from "@/lib/ai";
+import { getTestPrisma, cleanDatabase, createTestClient, createTestTask, uniqueEmail } from "./helpers";
+
+let prisma: PrismaClient;
+
+before(async () => {
+  prisma = await getTestPrisma();
+});
+
+beforeEach(async () => {
+  await cleanDatabase(prisma);
+});
+
+after(async () => {
+  await prisma.$disconnect();
+});
+
+function makeClassify(result: Partial<ClassifiedResponse>) {
+  return async () => ({
+    relevance: "action" as const,
+    needsReview: false,
+    ...result,
+  });
+}
+
+const noopUpload = async () => ({ status: "uploaded" as const, dropboxPath: "/x/file.pdf" });
+const noopSync = { syncFromDecision: async () => {} };
+
+function baseInput(email: string) {
+  return {
+    messageId: `msg-${Date.now()}`,
+    from: `"Test" <${email}>`,
+    subject: "Asunto de prueba",
+    body: "Cuerpo de prueba",
+  };
+}
+
+describe("Pipeline de procesamiento", () => {
+  it("correo irrelevante: registra comunicación sin crear tarea", async () => {
+    const classify = makeClassify({ relevance: "irrelevant", needsReview: false });
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.relevance, "irrelevant");
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 0);
+  });
+
+  it("correo informativo: registra comunicación sin crear tarea", async () => {
+    const classify = makeClassify({ relevance: "info", needsReview: false });
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.relevance, "info");
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 0);
+  });
+
+  it("nueva solicitud: crea tarea y la relaciona con el cliente", async () => {
+    const email = uniqueEmail();
+    const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const classify = makeClassify({ relevance: "action", isNewTask: true, title: "Nueva tarea", area: "Fiscal", priority: "Normal", needsReview: false });
+
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.clientId, clientId);
+    assert.ok(comm?.taskId);
+    const task = await prisma.task.findUnique({ where: { id: comm!.taskId! } });
+    assert.equal(task?.clientId, clientId);
+    assert.equal(task?.title, "Nueva tarea");
+  });
+
+  it("información adicional: se vincula a una tarea existente", async () => {
+    const email = uniqueEmail();
+    const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const { id: taskId } = await createTestTask(prisma, clientId, "Tarea existente");
+    const classify = makeClassify({ relevance: "info", matchedTaskId: taskId, needsReview: false });
+
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.taskId, taskId);
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 1);
+  });
+
+  it("cliente desconocido: queda pendiente de revisión", async () => {
+    const classify = makeClassify({ relevance: "action", needsReview: false });
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.needsReview, true);
+    assert.equal(comm?.clientId, null);
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 0);
+  });
+
+  it("relación ambigua: no fusiona automáticamente y pide revisión", async () => {
+    const email = uniqueEmail();
+    const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
+    await createTestTask(prisma, clientId, "Tarea real");
+    const classify = makeClassify({ relevance: "action", matchedTaskId: "tarea-inventada", needsReview: false });
+
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.needsReview, true);
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 1);
+  });
+
+  it("correo duplicado: no duplica registros", async () => {
+    const classify = makeClassify({ relevance: "irrelevant", needsReview: false });
+    const input = baseInput(uniqueEmail());
+    await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, input);
+    const res2 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, input);
+
+    const count = await prisma.communication.count();
+    assert.equal(count, 1);
+    assert.equal(res2.errors.length, 0);
+  });
+
+  it("error de Notion: conserva el registro local y permite recuperar la sincronización", async () => {
+    const email = uniqueEmail();
+    await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const classify = makeClassify({ relevance: "action", isNewTask: true, needsReview: false });
+    let syncCalls = 0;
+    const flakySync = {
+      syncFromDecision: async () => {
+        syncCalls++;
+        if (syncCalls === 1) throw new Error("Notion timeout");
+      },
+    };
+
+    const res1 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: flakySync }, baseInput(email));
+    assert.equal(res1.errors.length, 1);
+    const errors = await prisma.errorLog.findMany({ where: { source: "sync" } });
+    assert.equal(errors.length, 1);
+
+    // Simular reintento: forzar estado error y reprocesar.
+    const comm = await prisma.communication.findUnique({ where: { id: res1.communicationId } });
+    await prisma.communication.update({ where: { id: comm!.id }, data: { processingStatus: "error" } });
+    const res2 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: flakySync }, baseInput(email));
+    assert.equal(res2.errors.length, 0);
+    assert.equal(syncCalls, 2);
+  });
+
+  it("error de Dropbox: conserva el registro local y permite reintentar la subida", async () => {
+    const email = uniqueEmail();
+    await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const classify = makeClassify({ relevance: "action", isNewTask: true, needsReview: false });
+    let uploadCalls = 0;
+    const flakyUpload = async () => {
+      uploadCalls++;
+      if (uploadCalls === 1) return { status: "error" as const, errorMessage: "Dropbox timeout" };
+      return { status: "uploaded" as const, dropboxPath: "/x/file.pdf" };
+    };
+
+    const input = { ...baseInput(email), attachments: [{ filename: "doc.pdf", contentBase64: "SGVsbG8=" }] };
+    await processCommunication({ prisma, classify, uploadAttachment: flakyUpload, syncNotion: noopSync }, input);
+    const attachment = await prisma.attachment.findFirst();
+    assert.equal(attachment?.uploadStatus, "error");
+
+    // Reintentar subida vía pipeline: el adjunto en error se reintentará.
+    await prisma.communication.update({ where: { id: attachment!.communicationId }, data: { processingStatus: "error" } });
+    await processCommunication({ prisma, classify, uploadAttachment: flakyUpload, syncNotion: noopSync }, input);
+    const updated = await prisma.attachment.findUnique({ where: { id: attachment!.id } });
+    assert.equal(updated?.uploadStatus, "uploaded");
+  });
+
+  it("fallo de IA: no crea una tarea basada en una respuesta inválida", async () => {
+    const email = uniqueEmail();
+    await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const classify = async () => {
+      throw new Error("IA no disponible");
+    };
+
+    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+
+    assert.equal(res.errors.length, 1);
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.equal(comm?.status, "error");
+    const tasks = await prisma.task.findMany();
+    assert.equal(tasks.length, 0);
+  });
+});

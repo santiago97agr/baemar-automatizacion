@@ -24,7 +24,7 @@ export async function pushActivityToIntegrations(activity: PushableActivity) {
         const result = await integration.push(activity);
         return prisma.activityTarget.create({
           data: {
-            activityId: activity.id,
+            communicationId: activity.id,
             targetType: integration.type,
             targetId: result.targetId,
             targetUrl: result.targetUrl,
@@ -39,12 +39,12 @@ export async function pushActivityToIntegrations(activity: PushableActivity) {
           data: {
             source: integration.type as "notion" | "erp",
             message,
-            activityId: activity.id,
+            communicationId: activity.id,
           },
         });
         return prisma.activityTarget.create({
           data: {
-            activityId: activity.id,
+            communicationId: activity.id,
             targetType: integration.type,
             status: "error",
             errorMessage: message,

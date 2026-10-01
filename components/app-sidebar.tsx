@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   AlertCircle,
+  Briefcase,
+  Building2,
   History,
   Inbox,
   LayoutDashboard,
@@ -16,6 +18,8 @@ import {
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/clientes", label: "Clientes", icon: Building2 },
+  { href: "/tareas", label: "Tareas", icon: Briefcase },
   { href: "/revisiones", label: "Revisiones", icon: Inbox },
   { href: "/historial", label: "Historial", icon: History },
   { href: "/reglas", label: "Reglas", icon: Scale },

@@ -3,15 +3,18 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { NotionSync } from "@/lib/sync/notion-sync";
 
 const schema = z.object({
   title: z.string().min(1),
   type: z.string().min(1),
-  priority: z.enum(["Alta", "Media", "Baja"]),
+  priority: z.enum(["Normal", "Alta", "Urgente"]),
   description: z.string().default(""),
   summary: z.string().default(""),
   feedbackText: z.string().optional(),
 });
+
+const notionSync = new NotionSync();
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isValidBasicAuth(request)) return basicAuthResponse();
@@ -22,12 +25,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json();
     const data = schema.parse(body);
 
-    const activity = await prisma.aiActivity.findUnique({ where: { id } });
+    const activity = await prisma.communication.findUnique({ where: { id } });
     if (!activity) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    await prisma.aiActivity.update({
+    await prisma.communication.update({
       where: { id },
       data: {
         title: data.title,
@@ -37,13 +40,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         summary: data.summary,
         reviewStatus: "reviewed",
         needsReview: false,
+        correctedAt: new Date(),
       },
     });
 
     if (data.feedbackText?.trim()) {
       await prisma.feedback.create({
         data: {
-          activityId: id,
+          communicationId: id,
           emailMessageId: activity.messageId,
           type: "correction",
           text: data.feedbackText,
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
     }
 
-    const activityWithTargets = await prisma.aiActivity.findUnique({
+    const activityWithTargets = await prisma.communication.findUnique({
       where: { id },
       include: { targets: true },
     });
@@ -63,9 +67,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const existingOk = activityWithTargets.targets.filter((t) => t.status === "ok").length;
     if (existingOk === 0) {
       await pushActivityToIntegrations(activityWithTargets);
+      try {
+        await notionSync.syncFromDecision(
+          { prisma },
+          {
+            communication: activityWithTargets,
+            task: activityWithTargets.taskId ? { id: activityWithTargets.taskId, clientId: activityWithTargets.clientId || "" } : undefined,
+            isNewTask: false,
+            isNewClient: false,
+          }
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Notion sync error";
+        await prisma.errorLog.create({ data: { source: "sync", message: msg, communicationId: id } });
+      }
     }
 
-    const fullActivity = await prisma.aiActivity.findUnique({
+    const fullActivity = await prisma.communication.findUnique({
       where: { id },
       include: { targets: true, feedback: { orderBy: { createdAt: "desc" } } },
     });

@@ -8,9 +8,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
 
   try {
-    const activity = await prisma.aiActivity.findUnique({
+    const activity = await prisma.communication.findUnique({
       where: { id },
-      include: { targets: true, feedback: { orderBy: { createdAt: "desc" } } },
+      include: {
+        targets: true,
+        client: true,
+        task: true,
+        files: true,
+        feedback: { orderBy: { createdAt: "desc" } },
+      },
     });
 
     if (!activity) {

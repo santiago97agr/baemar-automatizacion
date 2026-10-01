@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   const targets = await prisma.activityTarget.findMany({
     where,
-    include: { activity: true },
+    include: { communication: true },
     orderBy: { createdAt: "asc" },
   });
 

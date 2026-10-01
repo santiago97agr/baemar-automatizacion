@@ -19,6 +19,7 @@ import {
   ReviewStatusBadge,
   TargetStatusBadge,
 } from "@/components/status-badges";
+import { relevanceLabel } from "@/lib/labels";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/format";
@@ -37,10 +38,13 @@ type Item = {
   from: string;
   type: string;
   priority: string;
+  relevance: string | null;
   reviewStatus: string;
   status: string;
   createdAt: string;
   targets: Target[];
+  client: { id: string; name: string } | null;
+  task: { id: string; title: string } | null;
 };
 
 function HistorialSkeleton() {
@@ -107,6 +111,9 @@ export default function HistorialPage() {
               <TableHeader>
                 <TableHead>Actividad</TableHead>
                 <TableHead>Remitente</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Tarea</TableHead>
+                <TableHead>Relevancia</TableHead>
                 <TableHead>Categoría</TableHead>
                 <TableHead>Prioridad</TableHead>
                 <TableHead>Revisión</TableHead>
@@ -127,6 +134,25 @@ export default function HistorialPage() {
                       <p className="text-meta text-ink-3">{item.subject}</p>
                     </TableCell>
                     <TableCell className="text-ink">{item.from}</TableCell>
+                    <TableCell>
+                      {item.client ? (
+                        <Link href={`/clientes/${item.client.id}`} className="text-accent hover:underline">
+                          {item.client.name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {item.task ? (
+                        <Link href={`/tareas/${item.task.id}`} className="text-accent hover:underline">
+                          {item.task.title}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell>{relevanceLabel(item.relevance)}</TableCell>
                     <TableCell>
                       <CategoryBadge category={item.type} />
                     </TableCell>

@@ -1,4 +1,4 @@
-export type IntegrationType = "notion" | "erp";
+export type IntegrationType = "erp";
 
 export type IntegrationResult = {
   targetId?: string;

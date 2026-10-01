@@ -7,56 +7,166 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model AiActivity {
-  id            String           @id @default(cuid())
-  messageId     String           @unique
-  subject       String
-  from          String
-  body          String           @default("")
-  attachments   String?          // JSON array con metadatos de adjuntos
+model Client {
+  id           String   @id @default(cuid())
+  name         String
+  aliases      String   @default("[]") // JSON array de nombres alternativos
+  taxId        String?  @unique        // NIF/CIF
+  areas        String   @default("[]") // JSON array de áreas (Fiscal, Laboral...)
+  status       String   @default("Activo") // Activo | Baja
+  assignee     String?                 // responsable manual (la IA no lo asigna)
+  notionPageId String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  contacts     Contact[]
+  tasks        Task[]
+  communications Communication[]
+  attachments  Attachment[]
+
+  @@index([name])
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  channel   String   // Email | Teléfono | WhatsApp
+  address   String   // email o teléfono normalizado
+  name      String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([channel, address])
+  @@index([clientId])
+}
+
+model Task {
+  id            String   @id @default(cuid())
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   title         String
-  type          String
-  priority      String
-  description   String           @default("")
-  summary       String           @default("")
-  aiRaw         String           @default("") // JSON crudo devuelto por la IA
-  needsReview   Boolean          @default(false)
-  reviewReason  String?
-  reviewStatus  String           @default("not_required") // not_required | pending | reviewed
-  status        String           @default("ok")           // ok | error
-  errorMessage  String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  targets       ActivityTarget[]
-  feedback      Feedback[]
-  errors        ErrorLog[]
+  area          String?
+  priority      String   @default("Normal") // Normal | Alta | Urgente
+  status        String   @default("Pendiente") // Pendiente | En curso | Esperando cliente | Esperando tercero | Terminada
+  description   String   @default("")
+  summary       String   @default("")
+  entryDate     DateTime @default(now())
+  dueDate       DateTime? // solo manual: la IA nunca propone plazos
+  economicValue Float?    // solo manual
+  assignee      String?   // solo manual
+  origin        String   @default("Email") // Email | WhatsApp | Teléfono | Presencial | Interno
+  notionPageId  String?  @unique
+  syncStatus    String   @default("pending") // pending | ok | error | skipped
+  syncError     String?
+  syncAttempts  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  closedAt      DateTime?
+
+  communications Communication[]
+  attachments    Attachment[]
+
+  @@index([clientId, status])
+}
+
+model Attachment {
+  id              String   @id @default(cuid())
+  communicationId String
+  communication   Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  taskId          String?
+  task            Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  filename        String
+  contentType     String?
+  size            Int?
+  sha256          String?
+  contentBase64   String?  // contenido para reintentos; se limpia tras subida si se desea
+  dropboxPath     String?  @unique
+  uploadStatus    String   @default("pending") // pending | uploaded | skipped | error
+  errorMessage    String?
+  attempts        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([communicationId, filename])
+  @@index([uploadStatus])
+}
+
+model Communication {
+  id               String   @id @default(cuid())
+  messageId        String   @unique
+  channel          String   @default("Email") // Email | WhatsApp
+  direction        String   @default("Entrante") // Entrante | Saliente
+  subject          String   @default("(sin asunto)")
+  from             String   @default("(desconocido)")
+  to               String?
+  body             String   @default("")
+  receivedAt       DateTime @default(now())
+  attachments      String?  // JSON array con metadatos originales del payload
+  title            String   @default("")
+  type             String   @default("General") // área/categoría propuesta
+  priority         String   @default("Normal") // Normal | Alta | Urgente
+  description      String   @default("")
+  summary          String   @default("")
+  aiRaw            String   @default("") // JSON crudo devuelto por la IA
+  relevance        String?  // irrelevant | info | action
+  needsReview      Boolean  @default(false)
+  reviewReason     String?
+  reviewStatus     String   @default("not_required") // not_required | pending | reviewed
+  processingStatus String   @default("done") // received | processing | classified | done | error
+  status           String   @default("ok") // ok | error
+  errorMessage     String?
+  externalRef      String?  // URL/enlace al mensaje original
+  notionPageId     String?  @unique
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  taskId           String?
+  task             Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  correctedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  targets     ActivityTarget[]
+  feedback    Feedback[]
+  errors      ErrorLog[]
+  files       Attachment[]
+
+  @@index([clientId])
+  @@index([taskId])
+  @@index([reviewStatus])
+  @@index([processingStatus])
+  @@map("AiActivity")
 }
 
 model ActivityTarget {
-  id            String     @id @default(cuid())
-  activityId    String
-  activity      AiActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  targetType    String     // notion | erp | ...
-  targetId      String?    // id externo
-  targetUrl     String?    // link profundo
-  status        String     @default("pending") // pending | ok | error
-  errorMessage  String?
-  payload       String?    // JSON enviado/pendiente
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id              String        @id @default(cuid())
+  communicationId String        @map("activityId")
+  communication   Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  targetType      String        // notion | erp | dropbox | ...
+  targetId        String?       // id externo
+  targetUrl       String?       // link profundo
+  status          String        @default("pending") // pending | ok | error
+  errorMessage    String?
+  payload         String?       // JSON enviado/pendiente
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([targetType, status])
 }
 
 model Feedback {
-  id              String     @id @default(cuid())
-  activityId      String
-  activity        AiActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  communicationId String        @map("activityId")
+  communication   Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
   emailMessageId  String?
-  type            String     // correction | comment
+  type            String        // correction | comment
   text            String
-  active          Boolean    @default(true)
-  createdAt       DateTime   @default(now())
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  @@index([communicationId])
 }
 
 model Category {
@@ -67,12 +177,12 @@ model Category {
 }
 
 model ErrorLog {
-  id            String      @id @default(cuid())
-  source        String      // n8n | ia | notion | processing | erp
-  message       String
-  activityId    String?
-  activity      AiActivity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
-  resolved      Boolean     @default(false)
-  createdAt     DateTime    @default(now())
-  resolvedAt    DateTime?
+  id              String         @id @default(cuid())
+  source          String         // n8n | ia | notion | processing | erp | dropbox | sync
+  message         String
+  communicationId String?        @map("activityId")
+  communication   Communication? @relation(fields: [communicationId], references: [id], onDelete: SetNull)
+  resolved        Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  resolvedAt      DateTime?
 }

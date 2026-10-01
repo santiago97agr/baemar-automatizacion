@@ -16,14 +16,14 @@ export async function GET(request: NextRequest) {
       iaErrors,
       lastRuns,
     ] = await Promise.all([
-      prisma.aiActivity.count(),
-      prisma.aiActivity.count({ where: { reviewStatus: "pending" } }),
-      prisma.aiActivity.count({ where: { reviewStatus: "reviewed" } }),
-      prisma.aiActivity.count({ where: { status: "error" } }),
+      prisma.communication.count(),
+      prisma.communication.count({ where: { reviewStatus: "pending" } }),
+      prisma.communication.count({ where: { reviewStatus: "reviewed" } }),
+      prisma.communication.count({ where: { status: "error" } }),
       prisma.errorLog.count({ where: { source: "notion", resolved: false } }),
       prisma.errorLog.count({ where: { source: "n8n", resolved: false } }),
       prisma.errorLog.count({ where: { source: "ia", resolved: false } }),
-      prisma.aiActivity.findMany({
+      prisma.communication.findMany({
         orderBy: { createdAt: "desc" },
         take: 10,
         include: { targets: true },

@@ -3,13 +3,11 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const DEFAULT_CATEGORIES = [
-  "fiscal",
-  "laboral",
-  "contable",
-  "mercantil",
-  "consulta",
-  "aviso",
-  "otros",
+  "Fiscal",
+  "Laboral",
+  "Contable",
+  "Jurídico-Mercantil",
+  "Administración",
 ];
 
 async function main() {

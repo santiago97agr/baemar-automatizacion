@@ -27,16 +27,20 @@ export function ReviewStatusBadge({ status }: { status: string }) {
 
 export function PriorityBadge({ priority }: { priority: string }) {
   switch (priority) {
+    case "Urgente":
+      return (
+        <Badge variant="danger" dot>
+          Urgente
+        </Badge>
+      );
     case "Alta":
       return (
         <Badge variant="warning" dot>
           Alta
         </Badge>
       );
-    case "Media":
-      return <Badge variant="neutral">Media</Badge>;
-    case "Baja":
-      return <Badge variant="neutral">Baja</Badge>;
+    case "Normal":
+      return <Badge variant="neutral">Normal</Badge>;
     default:
       return <Badge variant="neutral">{priority}</Badge>;
   }

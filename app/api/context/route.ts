@@ -9,15 +9,15 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const activityId = searchParams.get("activityId");
+  const communicationId = searchParams.get("communicationId");
   const messageId = searchParams.get("messageId");
 
-  if (!activityId && !messageId) {
+  if (!communicationId && !messageId) {
     return NextResponse.json({ context: [] });
   }
 
   const where: Prisma.FeedbackWhereInput = {};
-  if (activityId) where.activityId = activityId;
+  if (communicationId) where.communicationId = communicationId;
   if (messageId) where.emailMessageId = messageId;
 
   const feedback = await prisma.feedback.findMany({
