@@ -38,7 +38,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await prisma.attachment.updateMany({
       where: { communicationId: id },
-      data: { taskId: task.id, clientId: updated.clientId },
+      data: { clientId: updated.clientId },
     });
 
     try {

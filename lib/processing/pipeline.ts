@@ -16,9 +16,12 @@ export type SyncNotionFn = {
   }): Promise<void>;
 };
 
+export type IdentifyClientFn = (fromHeader: string) => Promise<import("./identify-client").IdentifyResult>;
+
 export type PipelineDeps = {
   prisma: PrismaClient;
   classify: ClassifyFn;
+  identifyClient?: IdentifyClientFn;
   uploadAttachment?: UploadAttachmentFn;
   syncNotion?: SyncNotionFn;
   now?: () => Date;
@@ -66,7 +69,7 @@ export function normalizeInput(raw: unknown): ProcessingInput {
 
 export async function processCommunication(deps: PipelineDeps, rawInput: unknown): Promise<PipelineResult> {
   const input = normalizeInput(rawInput);
-  const { prisma, classify, uploadAttachment, syncNotion } = deps;
+  const { prisma, classify, identifyClient = (fromHeader) => identifyClientByEmail(prisma, fromHeader), uploadAttachment, syncNotion } = deps;
 
   // 1. Dedupe / lock.
   let communication: Communication;
@@ -107,7 +110,7 @@ export async function processCommunication(deps: PipelineDeps, rawInput: unknown
 
   try {
     // 2. Identify client.
-    const identifyResult = await identifyClientByEmail(prisma, input.from);
+    const identifyResult = await identifyClient(input.from);
 
     // 3. Classify.
     const classification = await classify(

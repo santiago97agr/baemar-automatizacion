@@ -63,18 +63,9 @@ export class NotionSync {
       }
     }
 
-    const emails = await prisma.contact.findMany({
-      where: { clientId: client.id, channel: "Email" },
-      orderBy: { isPrimary: "desc" },
-    });
-    const phones = await prisma.contact.findMany({
-      where: { clientId: client.id, channel: { in: ["Teléfono", "WhatsApp"] } },
-      orderBy: { isPrimary: "desc" },
-    });
-
     const page = (await notion.pages.create({
       parent: { database_id: dbId },
-      properties: clientProperties(client, emails, phones),
+      properties: clientProperties(client),
     })) as PageObjectResponse;
 
     await prisma.client.update({ where: { id: client.id }, data: { notionPageId: page.id } });
@@ -163,20 +154,13 @@ export class NotionSync {
   }
 }
 
-function clientProperties(
-  client: Client,
-  emails?: { address: string }[],
-  phones?: { address: string; channel: string }[]
-): Record<string, any> {
+function clientProperties(client: Client): Record<string, any> {
   const areas = parseJsonArray(client.areas);
   return {
     Nombre: title(client.name),
     "NIF/CIF": richText(client.taxId ?? ""),
     Estado: select(client.status),
     Áreas: multiSelect(areas),
-    Emails: richText(emails?.map((e) => e.address).join(", ") ?? ""),
-    Teléfonos: richText(phones?.map((p) => `${p.channel}: ${p.address}`).join(", ") ?? ""),
-    Responsable: richText(client.assignee ?? ""),
     "External ID": richText(client.id),
   };
 }
@@ -192,7 +176,7 @@ function taskProperties(task: Task, clientPageId: string): Record<string, any> {
     "Fecha de entrada": date(task.entryDate),
     Origen: select(task.origin),
     "Resumen IA": richText(task.summary),
-    "Valoración económica": task.economicValue != null ? { number: task.economicValue } : { number: null },
+    "Valoracion economica": task.economicValue != null ? { number: task.economicValue } : { number: null },
     "External ID": richText(task.id),
   };
   if (task.dueDate) {

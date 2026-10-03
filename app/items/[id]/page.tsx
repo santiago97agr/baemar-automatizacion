@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle, Paperclip, RefreshCw, User, Briefcase, Plus } from "lucide-react";
+import { CheckCircle, Paperclip, RefreshCw, User, Briefcase, Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,13 @@ import { relevanceLabel, uploadStatusLabel } from "@/lib/labels";
 export default function CommunicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activity, setActivity] = useState<any>(null);
-  const [clients, setClients] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientResults, setClientResults] = useState<any[]>([]);
+  const [searchingClients, setSearchingClients] = useState(false);
   const [assignForm, setAssignForm] = useState({ clientId: "", taskId: "" });
   const [taskForm, setTaskForm] = useState({ title: "", area: "", priority: "Normal" });
   const [correctForm, setCorrectForm] = useState({ title: "", type: "", priority: "Normal", description: "", summary: "", feedbackText: "" });
@@ -34,11 +36,29 @@ export default function CommunicationDetailPage() {
   useEffect(() => {
     if (!id) return;
     load();
-    fetch("/api/clients", { credentials: "include" })
-      .then((r) => r.json())
-      .then((d) => setClients(d.clients || []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    const q = clientQuery.trim();
+    if (q.length < 2) {
+      setClientResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchingClients(true);
+      try {
+        const res = await fetch(`/api/clients?q=${encodeURIComponent(q)}`, { credentials: "include" });
+        const data = await res.json();
+        setClientResults(data.clients || []);
+      } catch {
+        setClientResults([]);
+      } finally {
+        setSearchingClients(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [clientQuery]);
 
   async function load() {
     setLoading(true);
@@ -105,9 +125,7 @@ export default function CommunicationDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             <User className="h-4 w-4 text-ink-3" />
             {activity.client ? (
-              <Link href={`/clientes/${activity.client.id}`} className="font-medium hover:text-accent hover:underline">
-                {activity.client.name}
-              </Link>
+              <span className="font-medium">{activity.client.name}</span>
             ) : (
               <span className="text-ink-3">Sin cliente asignado</span>
             )}
@@ -125,13 +143,51 @@ export default function CommunicationDetailPage() {
 
           {!activity.client && (
             <div className="grid gap-3 border-t border-line pt-4 sm:grid-cols-4">
-              <Field label="Asignar cliente" className="sm:col-span-2">
-                <Select value={assignForm.clientId} onChange={(e) => setAssignForm({ ...assignForm, clientId: e.target.value, taskId: "" })}>
-                  <option value="">Seleccionar...</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </Select>
+              <Field label="Asignar cliente desde Notion" className="sm:col-span-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" />
+                  <Input
+                    value={clientQuery}
+                    onChange={(e) => {
+                      setClientQuery(e.target.value);
+                      if (e.target.value.trim().length < 2) {
+                        setAssignForm({ ...assignForm, clientId: "" });
+                      }
+                    }}
+                    placeholder="Escribe para buscar..."
+                    className="pl-9"
+                  />
+                  {searchingClients && (
+                    <span className="absolute right-2.5 top-2.5 text-xs text-ink-3">Buscando...</span>
+                  )}
+                </div>
+                {clientResults.length > 0 && (
+                  <ul className="mt-1 max-h-48 overflow-auto rounded border border-line bg-surface shadow-sm">
+                    {clientResults.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssignForm({ ...assignForm, clientId: c.id, taskId: "" });
+                            setClientQuery(c.name);
+                            setClientResults([]);
+                            // Cargar tareas del cliente seleccionado.
+                            fetch(`/api/tasks?clientId=${c.id}`, { credentials: "include" })
+                              .then((r) => r.json())
+                              .then((d) => setTasks(d.tasks || []));
+                          }}
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-highlight ${assignForm.clientId === c.id ? "bg-highlight font-medium" : ""}`}
+                        >
+                          {c.name}
+                          {c.email ? <span className="ml-2 text-ink-3">({c.email})</span> : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {clientQuery.trim().length >= 2 && !searchingClients && clientResults.length === 0 && (
+                  <p className="mt-1 text-xs text-ink-3">No se encontraron clientes en Notion.</p>
+                )}
               </Field>
               <Field label="Tarea (opcional)">
                 <Select value={assignForm.taskId} onChange={(e) => setAssignForm({ ...assignForm, taskId: e.target.value })}>
@@ -142,7 +198,7 @@ export default function CommunicationDetailPage() {
                 </Select>
               </Field>
               <div className="flex items-end">
-                <Button onClick={() => doAction("assign", `/api/items/${id}/assign`, assignForm)} loading={actionLoading === "assign"}>
+                <Button onClick={() => doAction("assign", `/api/items/${id}/assign`, assignForm)} loading={actionLoading === "assign"} disabled={!assignForm.clientId}>
                   Asignar
                 </Button>
               </div>

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
 import { processCommunication } from "@/lib/processing/pipeline";
 import type { ClassifiedResponse } from "@/lib/ai";
+
 import { getTestPrisma, cleanDatabase, createTestClient, createTestTask, uniqueEmail } from "./helpers";
 
 let prisma: PrismaClient;
@@ -39,10 +40,38 @@ function baseInput(email: string) {
   };
 }
 
+// Reemplaza la identificación por una versión determinista basada en el espejo local.
+function identifyFromMirror(prismaClient: PrismaClient) {
+  return async (fromHeader: string) => {
+    // Evita llamadas a Notion en los tests: busca directamente en el espejo local.
+    const email = fromHeader.match(/<([^>]+)>/)
+      ? fromHeader.match(/<([^>]+)>/)![1]
+      : fromHeader.trim();
+    const client = await prismaClient.client.findFirst({
+      where: { email: email.toLowerCase() },
+      orderBy: { lastSyncedAt: "desc" },
+    });
+    if (client) return { clientId: client.id, ambiguous: false as const };
+    return { clientId: null, ambiguous: false as const };
+  };
+}
+
+function processWithMirror(
+  input: unknown,
+  classify: (input: { subject: string; from: string; body: string }) => Promise<Record<string, unknown>>,
+  uploadAttachment = noopUpload,
+  syncNotion = noopSync
+) {
+  return processCommunication(
+    { prisma, classify, identifyClient: identifyFromMirror(prisma), uploadAttachment, syncNotion },
+    input
+  );
+}
+
 describe("Pipeline de procesamiento", () => {
   it("correo irrelevante: registra comunicación sin crear tarea", async () => {
     const classify = makeClassify({ relevance: "irrelevant", needsReview: false });
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+    const res = await processWithMirror(baseInput(uniqueEmail()), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.relevance, "irrelevant");
@@ -52,7 +81,7 @@ describe("Pipeline de procesamiento", () => {
 
   it("correo informativo: registra comunicación sin crear tarea", async () => {
     const classify = makeClassify({ relevance: "info", needsReview: false });
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+    const res = await processWithMirror(baseInput(uniqueEmail()), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.relevance, "info");
@@ -65,7 +94,7 @@ describe("Pipeline de procesamiento", () => {
     const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
     const classify = makeClassify({ relevance: "action", isNewTask: true, title: "Nueva tarea", area: "Fiscal", priority: "Normal", needsReview: false });
 
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+    const res = await processWithMirror(baseInput(email), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.clientId, clientId);
@@ -81,7 +110,7 @@ describe("Pipeline de procesamiento", () => {
     const { id: taskId } = await createTestTask(prisma, clientId, "Tarea existente");
     const classify = makeClassify({ relevance: "info", matchedTaskId: taskId, needsReview: false });
 
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+    const res = await processWithMirror(baseInput(email), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.taskId, taskId);
@@ -91,7 +120,7 @@ describe("Pipeline de procesamiento", () => {
 
   it("cliente desconocido: queda pendiente de revisión", async () => {
     const classify = makeClassify({ relevance: "action", needsReview: false });
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(uniqueEmail()));
+    const res = await processWithMirror(baseInput(uniqueEmail()), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.needsReview, true);
@@ -106,7 +135,7 @@ describe("Pipeline de procesamiento", () => {
     await createTestTask(prisma, clientId, "Tarea real");
     const classify = makeClassify({ relevance: "action", matchedTaskId: "tarea-inventada", needsReview: false });
 
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+    const res = await processWithMirror(baseInput(email), classify);
 
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
     assert.equal(comm?.needsReview, true);
@@ -117,8 +146,8 @@ describe("Pipeline de procesamiento", () => {
   it("correo duplicado: no duplica registros", async () => {
     const classify = makeClassify({ relevance: "irrelevant", needsReview: false });
     const input = baseInput(uniqueEmail());
-    await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, input);
-    const res2 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, input);
+    await processWithMirror(input, classify);
+    const res2 = await processWithMirror(input, classify);
 
     const count = await prisma.communication.count();
     assert.equal(count, 1);
@@ -137,7 +166,7 @@ describe("Pipeline de procesamiento", () => {
       },
     };
 
-    const res1 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: flakySync }, baseInput(email));
+    const res1 = await processWithMirror(baseInput(email), classify, noopUpload, flakySync);
     assert.equal(res1.errors.length, 1);
     const errors = await prisma.errorLog.findMany({ where: { source: "sync" } });
     assert.equal(errors.length, 1);
@@ -145,7 +174,7 @@ describe("Pipeline de procesamiento", () => {
     // Simular reintento: forzar estado error y reprocesar.
     const comm = await prisma.communication.findUnique({ where: { id: res1.communicationId } });
     await prisma.communication.update({ where: { id: comm!.id }, data: { processingStatus: "error" } });
-    const res2 = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: flakySync }, baseInput(email));
+    const res2 = await processWithMirror(baseInput(email), classify, noopUpload, flakySync);
     assert.equal(res2.errors.length, 0);
     assert.equal(syncCalls, 2);
   });
@@ -162,13 +191,13 @@ describe("Pipeline de procesamiento", () => {
     };
 
     const input = { ...baseInput(email), attachments: [{ filename: "doc.pdf", contentBase64: "SGVsbG8=" }] };
-    await processCommunication({ prisma, classify, uploadAttachment: flakyUpload, syncNotion: noopSync }, input);
+    await processWithMirror(input, classify, flakyUpload);
     const attachment = await prisma.attachment.findFirst();
     assert.equal(attachment?.uploadStatus, "error");
 
     // Reintentar subida vía pipeline: el adjunto en error se reintentará.
     await prisma.communication.update({ where: { id: attachment!.communicationId }, data: { processingStatus: "error" } });
-    await processCommunication({ prisma, classify, uploadAttachment: flakyUpload, syncNotion: noopSync }, input);
+    await processWithMirror(input, classify, flakyUpload);
     const updated = await prisma.attachment.findUnique({ where: { id: attachment!.id } });
     assert.equal(updated?.uploadStatus, "uploaded");
   });
@@ -180,7 +209,7 @@ describe("Pipeline de procesamiento", () => {
       throw new Error("IA no disponible");
     };
 
-    const res = await processCommunication({ prisma, classify, uploadAttachment: noopUpload, syncNotion: noopSync }, baseInput(email));
+    const res = await processWithMirror(baseInput(email), classify);
 
     assert.equal(res.errors.length, 1);
     const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });

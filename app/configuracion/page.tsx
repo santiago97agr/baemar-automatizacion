@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Boxes, Tags, Bot, Database, CheckCircle, XCircle } from "lucide-react";
+import { AlertCircle, Boxes, Tags, Bot, Database, Cloud, CheckCircle, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,10 @@ export default function ConfiguracionPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [checkingAI, setCheckingAI] = useState(false);
   const [checkingNotion, setCheckingNotion] = useState(false);
+  const [checkingDropbox, setCheckingDropbox] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [notionStatus, setNotionStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [dropboxStatus, setDropboxStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +127,30 @@ export default function ConfiguracionPage() {
       setNotionStatus({ ok: false, message: "Error inesperado al comprobar la conexión." });
     } finally {
       setCheckingNotion(false);
+    }
+  }
+
+  async function checkDropbox() {
+    setCheckingDropbox(true);
+    setDropboxStatus(null);
+    try {
+      const res = await fetch("/api/config/check/dropbox", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setDropboxStatus({
+          ok: true,
+          message: `Conexión correcta con Dropbox (${data.account.email || data.account.name}).`,
+        });
+      } else {
+        setDropboxStatus({ ok: false, message: data.error || "No se pudo conectar con Dropbox." });
+      }
+    } catch {
+      setDropboxStatus({ ok: false, message: "Error inesperado al comprobar la conexión." });
+    } finally {
+      setCheckingDropbox(false);
     }
   }
 
@@ -273,6 +299,36 @@ export default function ConfiguracionPage() {
                     <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   )}
                   <span>{notionStatus.message}</span>
+                </div>
+              </Alert>
+            )}
+            <div className="border-t border-line" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <Cloud className="h-5 w-5 text-ink-2" />
+                <div>
+                  <p className="font-medium text-ink">Dropbox</p>
+                  <p className="text-meta text-ink-3">Verifica que el token de Dropbox es válido.</p>
+                </div>
+              </div>
+              <Button
+                onClick={checkDropbox}
+                loading={checkingDropbox}
+                disabled={checkingDropbox}
+                className="sm:w-auto w-full"
+              >
+                Comprobar conexión
+              </Button>
+            </div>
+            {dropboxStatus && (
+              <Alert variant={dropboxStatus.ok ? "success" : "danger"}>
+                <div className="flex items-start gap-2">
+                  {dropboxStatus.ok ? (
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{dropboxStatus.message}</span>
                 </div>
               </Alert>
             )}

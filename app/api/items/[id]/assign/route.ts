@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 import { NotionSync } from "@/lib/sync/notion-sync";
+import { refreshClientFromNotion } from "@/lib/sync/notion-clients";
 
 const schema = z.object({
   clientId: z.string().min(1),
@@ -30,6 +31,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
     }
 
+    // Refrescar datos del espejo desde Notion antes de asignar.
+    if (client.notionPageId) {
+      await refreshClientFromNotion(prisma, client.notionPageId);
+    }
+
     let taskId: string | null = null;
     if (data.taskId) {
       const task = await prisma.task.findFirst({ where: { id: data.taskId, clientId: data.clientId } });
@@ -47,7 +53,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await prisma.attachment.updateMany({
       where: { communicationId: id },
-      data: { clientId: data.clientId, taskId },
+      data: { clientId: data.clientId },
     });
 
     try {

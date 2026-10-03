@@ -1,6 +1,8 @@
-# BAEMAR — Fase 1
+# BAEMAR — Fase 2
 
-Aplicación para procesar comunicaciones (email en esta fase), clasificarlas mediante IA, gestionar clientes, tareas y comunicaciones, sincronizar con Notion y almacenar adjuntos en Dropbox.
+Aplicación para procesar comunicaciones (email en esta fase), clasificarlas mediante IA, gestionar tareas y comunicaciones, sincronizar con Notion y almacenar adjuntos en Dropbox.
+
+**Cambio clave de la Fase 2:** Notion es la fuente de verdad de los clientes. La app mantiene un espejo de solo lectura en SQLite; no existe CRUD de clientes en el dashboard.
 
 Stack: Next.js 16.3.5, React 19, Prisma 6 + SQLite, Tailwind CSS 4, Node 22.
 
@@ -47,6 +49,7 @@ Copia `.env.example` a `.env` y completa:
 | `DROPBOX_ACCESS_TOKEN` | Alternativa de corta duración (no recomendado). |
 | `DROPBOX_ROOT_FOLDER` | Carpeta raíz en Dropbox (`baemar`). |
 | `NEXT_PUBLIC_APP_URL` | URL base de la app. |
+| `NEXT_PUBLIC_APP_URL` | URL base de la app. |
 
 **Nota de seguridad:** el repositorio actual tiene `.env` commiteado con valores de ejemplo/legacy. Antes de producción rota todos los tokens y añade `.env` a `.gitignore`.
 
@@ -56,15 +59,16 @@ Crea 3 bases de datos en una misma página/workspace. Comparte cada una con la i
 
 ### CLIENTES
 
+La app **lee** clientes de esta DB. Crea, edita y elimina clientes directamente en Notion; la app los sincroniza automáticamente.
+
 | Propiedad | Tipo | Opciones / notas |
 |-----------|------|------------------|
 | Nombre | Title | |
 | NIF/CIF | Rich text | |
 | Estado | Select | `Activo`, `Baja` |
 | Áreas | Multi-select | `Fiscal`, `Laboral`, `Contable`, `Jurídico-Mercantil`, `Administración` |
-| Emails | Rich text | |
-| Teléfonos | Rich text | |
-| Responsable | Rich text | |
+| Emails | Rich text | Emails asociados, separados por comas o punto y coma. |
+| Teléfonos | Rich text | Teléfonos y WhatsApp asociados. |
 | Tareas | Relation | → TAREAS (two-way recomendado) |
 | Comunicaciones | Relation | → COMUNICACIONES (two-way recomendado) |
 | External ID | Rich text | ID local del cliente |
@@ -84,14 +88,14 @@ Crea 3 bases de datos en una misma página/workspace. Comparte cada una con la i
 | Origen | Select | `Email`, `WhatsApp`, `Teléfono`, `Presencial`, `Interno` |
 | Resumen IA | Rich text | |
 | Comunicaciones | Relation | → COMUNICACIONES (two-way recomendado) |
-| Valoración económica | Number | |
+| Valoracion economica | Number | |
 | External ID | Rich text | ID local de la tarea |
 
 ### COMUNICACIONES
 
 | Propiedad | Tipo | Opciones |
 |-----------|------|----------|
-| Asunto | Title | |
+| Asunto | Title | Asunto o descripción. |
 | Cliente | Relation | → CLIENTES |
 | Fecha | Date | con hora |
 | Canal | Select | `Email`, `WhatsApp` |
@@ -101,10 +105,17 @@ Crea 3 bases de datos en una misma página/workspace. Comparte cada una con la i
 | Resumen IA | Rich text | |
 | Referencia | Rich text | messageId / enlace original |
 | Tarea | Relation | → TAREAS |
-| Requiere actuación | Checkbox | |
+| Requiere actuación | Checkbox | `Sí` se representa como marcada. |
 | External ID | Rich text | ID local de la comunicación |
 
 El código actualiza/crea páginas por `External ID`; si una página ya existe localmente (`notionPageId`) se actualiza, nunca se duplica.
+
+### Fuente de verdad de clientes
+
+- Durante el procesamiento de un correo, la app busca en la propiedad `Emails` de la DB CLIENTES de Notion el email del remitente.
+- Si encuentra exactamente un cliente, lo guarda en el espejo local (`Client`) y vincula la comunicación.
+- Si no encuentra coincidencias o hay varias, la comunicación queda sin cliente y pendiente de revisión.
+- El espejo local se refresca cada 5 minutos como máximo; puedes forzar el backfill completo con `POST /api/clients/sync`.
 
 ## Configuración de Dropbox
 
@@ -140,11 +151,13 @@ La IA **nunca** crea directamente tareas ni clientes; todas las decisiones se va
 - `POST /api/items/[id]/correct` — corrección manual.
 - `POST /api/items/[id]/review` — marcar como revisado.
 - `POST /api/items/[id]/reprocess` — reprocesar con IA.
-- `GET/POST /api/clients` — CRUD clientes.
-- `GET/PATCH /api/clients/[id]` — detalle/actualización.
+- `GET /api/clients?q=...` — buscar clientes en Notion (espejo local).
+- `POST /api/clients` — backfill completo del espejo de clientes desde Notion.
+- `GET /api/clients/[id]` — detalle de cliente (solo lectura).
 - `GET/POST /api/tasks` — listar/crear tareas.
 - `GET/PATCH /api/tasks/[id]` — detalle/actualización.
 - `POST /api/attachments/[id]/retry` — reintentar subida Dropbox.
+- `POST /api/config/check/dropbox` — comprobar conexión con Dropbox.
 
 ## Recuperación de errores
 
@@ -165,9 +178,9 @@ npx prisma migrate dev --name <nombre>  # nueva migración
 npx prisma generate  # regenerar cliente
 ```
 
-## Limitaciones conocidas de la Fase 1
+## Limitaciones conocidas de la Fase 2
 
-- WhatsApp está diseñado en el modelo (`Contact.channel`) pero no hay ingestión ni UI.
+- WhatsApp está diseñado en el modelo pero no hay ingestión ni UI.
 - La integración ERP sigue siendo polling vía `/api/outbox` (pendiente de middleware externo).
 - No hay paginación en listados grandes.
 - Los adjuntos se almacenan en base64 en SQLite hasta subirse; no está pensado para archivos grandes.

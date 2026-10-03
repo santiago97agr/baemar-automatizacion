@@ -52,9 +52,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       include: { task: true },
     });
 
+    // Los adjuntos se vinculan al cliente; la tarea se relaciona vía Communication.
     await prisma.attachment.updateMany({
       where: { communicationId: id },
-      data: { taskId: task.id },
+      data: { clientId: task.clientId },
     });
 
     try {

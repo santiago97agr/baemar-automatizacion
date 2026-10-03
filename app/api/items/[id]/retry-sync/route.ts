@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
 import { NotionSync } from "@/lib/sync/notion-sync";
+import { refreshClientFromNotion } from "@/lib/sync/notion-clients";
 
 const notionSync = new NotionSync();
 
@@ -28,6 +29,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         isNewClient: false,
       }
     );
+
+    // Refrescar espejo del cliente tras sincronizar.
+    if (communication.clientId) {
+      const client = await prisma.client.findUnique({ where: { id: communication.clientId } });
+      if (client?.notionPageId) {
+        await refreshClientFromNotion(prisma, client.notionPageId);
+      }
+    }
 
     const updated = await prisma.communication.update({
       where: { id },

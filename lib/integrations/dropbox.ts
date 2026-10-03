@@ -23,7 +23,19 @@ export function isDropboxConfigured(): boolean {
   return getConfig() !== null;
 }
 
-async function buildClient(): Promise<Dropbox | null> {
+export function getDropboxMissingVars(): string[] {
+  const missing: string[] = [];
+  const hasAccess = process.env.DROPBOX_ACCESS_TOKEN;
+  if (!hasAccess) missing.push("DROPBOX_ACCESS_TOKEN");
+  if (!hasAccess) {
+    if (!process.env.DROPBOX_REFRESH_TOKEN) missing.push("DROPBOX_REFRESH_TOKEN");
+    if (!process.env.DROPBOX_APP_KEY) missing.push("DROPBOX_APP_KEY");
+    if (!process.env.DROPBOX_APP_SECRET) missing.push("DROPBOX_APP_SECRET");
+  }
+  return missing;
+}
+
+export async function getDropboxClient(): Promise<Dropbox | null> {
   const cfg = getConfig();
   if (!cfg) return null;
 
@@ -46,12 +58,56 @@ async function buildClient(): Promise<Dropbox | null> {
   return new Dropbox({ accessToken, fetch: fetchImpl });
 }
 
+type DropboxCheckResult =
+  | {
+      ok: true;
+      account: {
+        id: string;
+        email: string;
+        name: string;
+      };
+      rootFolder: string;
+      mode: "accessToken" | "refresh";
+    }
+  | { ok: false; error: string };
+
+export async function checkDropboxConnection(dbx?: Dropbox): Promise<DropboxCheckResult> {
+  if (!isDropboxConfigured()) {
+    return { ok: false, error: `Dropbox no configurado: faltan ${getDropboxMissingVars().join(", ")}` };
+  }
+
+  const client = dbx ?? (await getDropboxClient());
+  if (!client) {
+    return { ok: false, error: "No se pudo construir el cliente de Dropbox" };
+  }
+
+  try {
+    const me = await client.usersGetCurrentAccount();
+    const account = me.result;
+    const cfg = getConfig();
+    const mode = cfg && "refreshToken" in cfg ? "refresh" : "accessToken";
+
+    return {
+      ok: true,
+      account: {
+        id: account.account_id,
+        email: account.email,
+        name: account.name?.display_name || account.email,
+      },
+      rootFolder: process.env.DROPBOX_ROOT_FOLDER || "baemar",
+      mode,
+    };
+  } catch (err) {
+    return { ok: false, error: extractError(err) };
+  }
+}
+
 export async function uploadAttachmentToDropbox(
   attachment: Attachment,
   clientSlug: string,
   dateFolder: string
 ): Promise<{ status: "uploaded" | "error"; dropboxPath?: string; errorMessage?: string }> {
-  const dbx = await buildClient();
+  const dbx = await getDropboxClient();
   if (!dbx) {
     return {
       status: "error",

@@ -99,7 +99,6 @@ export async function uploadPendingAttachments(
       where: { id: attachment.id },
       data: {
         clientId: communication.clientId,
-        taskId: communication.taskId,
         uploadStatus: result.status,
         dropboxPath: result.dropboxPath ?? null,
         errorMessage: result.errorMessage ?? null,

@@ -28,7 +28,6 @@ export async function cleanDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.errorLog.deleteMany();
   await prisma.communication.deleteMany();
   await prisma.task.deleteMany();
-  await prisma.contact.deleteMany();
   await prisma.client.deleteMany();
   await prisma.category.deleteMany();
 }
@@ -41,17 +40,18 @@ export async function seedTestCategories(prisma: PrismaClient): Promise<void> {
 
 export async function createTestClient(
   prisma: PrismaClient,
-  data: { name: string; email: string; taxId?: string }
-): Promise<{ id: string; contactId: string }> {
+  data: { name: string; email: string; taxId?: string; notionPageId?: string }
+): Promise<{ id: string }> {
   const client = await prisma.client.create({
     data: {
       name: data.name,
       taxId: data.taxId,
-      contacts: { create: { channel: "Email", address: data.email.toLowerCase(), isPrimary: true } },
+      email: data.email.toLowerCase(),
+      notionPageId: data.notionPageId ?? `notion-${Date.now()}`,
+      lastSyncedAt: new Date(),
     },
-    include: { contacts: true },
   });
-  return { id: client.id, contactId: client.contacts[0].id };
+  return { id: client.id };
 }
 
 export async function createTestTask(

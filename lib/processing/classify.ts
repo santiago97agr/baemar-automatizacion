@@ -25,7 +25,7 @@ export const classifyEmail: ClassifyFn = async (input, identifyResult, prisma) =
     getActiveCategories(),
     prisma.client.findMany({
       where: { status: { not: "Baja" } },
-      include: { contacts: { where: { channel: "Email" } } },
+      orderBy: { name: "asc" },
     }),
     prisma.feedback.findMany({ where: { active: true }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
@@ -33,7 +33,7 @@ export const classifyEmail: ClassifyFn = async (input, identifyResult, prisma) =
   const clients: ClientHint[] = clientsRaw.map((c) => ({
     id: c.id,
     name: c.name,
-    emails: c.contacts.map((contact) => contact.address),
+    emails: c.email ? [c.email] : [],
     areas: parseJsonArray(c.areas),
   }));
 

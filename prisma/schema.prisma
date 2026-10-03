@@ -15,30 +15,18 @@ model Client {
   areas        String   @default("[]") // JSON array de áreas (Fiscal, Laboral...)
   status       String   @default("Activo") // Activo | Baja
   assignee     String?                 // responsable manual (la IA no lo asigna)
+  email        String?                 // Email principal traido de Notion
   notionPageId String?  @unique
+  lastSyncedAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  contacts     Contact[]
   tasks        Task[]
   communications Communication[]
   attachments  Attachment[]
 
   @@index([name])
-}
-
-model Contact {
-  id        String   @id @default(cuid())
-  clientId  String
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  channel   String   // Email | Teléfono | WhatsApp
-  address   String   // email o teléfono normalizado
-  name      String?
-  isPrimary Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@unique([channel, address])
-  @@index([clientId])
+  @@index([email])
 }
 
 model Task {
@@ -65,7 +53,6 @@ model Task {
   closedAt      DateTime?
 
   communications Communication[]
-  attachments    Attachment[]
 
   @@index([clientId, status])
 }
@@ -76,8 +63,6 @@ model Attachment {
   communication   Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
   clientId        String?
   client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  taskId          String?
-  task            Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
   filename        String
   contentType     String?
   size            Int?

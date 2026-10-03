@@ -38,13 +38,21 @@ A communication must not automatically create a task. Multiple communications ma
 
 The target structure consists of three related databases:
 
-* CLIENTS
+* CLIENTS (source of truth for clients)
 * TASKS
 * COMMUNICATIONS
 
 Use Notion relations to connect clients to their tasks and communications, and tasks to their related communications.
 
 Keep stable internal IDs and Notion page IDs where needed to support synchronization and updates.
+
+### Client source of truth
+
+- `Client` in SQLite is a read-only mirror of the CLIENTS Notion database.
+- During processing, the pipeline queries Notion by sender email and caches the result for 5 minutes.
+- If the client is not found in Notion or multiple matches exist, the communication is left unassigned and flagged for review.
+- Manual assignment uses a live Notion search (`GET /api/clients?q=...`); there is no local client CRUD.
+- Backfill all clients from Notion via `POST /api/clients/sync`.
 
 ### Dropbox integration
 
@@ -101,16 +109,19 @@ Two separate auth layers:
 ### App architecture
 
 - App Router under `app/`.
-- Dashboard is `app/page.tsx`; new pages: `/clientes`, `/clientes/[id]`, `/tareas`, `/tareas/[id]`.
+- Dashboard is `app/page.tsx`; pages: `/tareas`, `/tareas/[id]`, `/items/[id]`, `/configuracion`, etc.
+- Client CRUD pages (`/clientes`, `/clientes/[id]`) were removed; clients are managed in Notion.
 - Ingestion entry point: `POST /api/process` → pipeline in `lib/processing/`.
-- Pipeline: dedupe → identify client → classify with IA → decide → attachments → Notion sync.
+- Pipeline: dedupe → identify client (Notion lookup) → classify with IA → decide → attachments → Notion sync.
 - Notion sync lives in `lib/sync/notion-sync.ts` and uses 3 DBs: CLIENTS, TASKS, COMMUNICATIONS.
+- Client mirror logic lives in `lib/sync/notion-clients.ts`.
 - Dropbox integration in `lib/integrations/dropbox.ts`; attachments tracked in the `Attachment` table.
+- Healthchecks for AI, Notion and Dropbox under `/api/config/check/*`.
 - ERP integration remains the outbox pattern via `/api/outbox`.
 
 ### Environment variables
 
-Key vars: `DATABASE_URL`, `NOTION_TOKEN`, `NOTION_CLIENTS_DB_ID`, `NOTION_TASKS_DB_ID`, `NOTION_COMMUNICATIONS_DB_ID`, `AUTH_USER`, `AUTH_PASSWORD`, `INTERNAL_API_TOKEN`, `INTEGRATIONS`, `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`, `DROPBOX_ROOT_FOLDER`, `NEXT_PUBLIC_APP_URL`.
+Key vars: `DATABASE_URL`, `NOTION_TOKEN`, `NOTION_CLIENTS_DB_ID`, `NOTION_TASKS_DB_ID`, `NOTION_COMMUNICATIONS_DB_ID`, `AUTH_USER`, `AUTH_PASSWORD`, `INTERNAL_API_TOKEN`, `INTEGRATIONS`, `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`, `DROPBOX_ROOT_FOLDER`, `DROPBOX_ACCESS_TOKEN`, `NEXT_PUBLIC_APP_URL`.
 
 `.env` is currently committed; rotate tokens before production.
 
