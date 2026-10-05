@@ -197,6 +197,13 @@ Normas:
 - Si no identificas al cliente o hay varios candidatos, devuelve needsReview=true.
 - No fusiones dos tareas distintas solo porque el asunto sea similar.
 - Un email que solo confirma, agradece o informa sin pedir nada se considera "info".
+- Vincula a una tarea abierta (matchedTaskId) SOLO cuando el contenido aporte información, modifique o continúe esa tarea de forma CLARA y EXPLÍCITA.
+- Crea una tarea nueva (isNewTask=true) cuando:
+  · el asunto o contenido trata un tema distinto a las tareas abiertas listadas;
+  · el correo no hace referencia explícita a ninguna de las tareas abiertas;
+  · la tarea abierta más reciente pertenece a un área diferente a la del correo;
+  · haya la más mínima duda. En caso de duda, SIEMPRE preferir crear una tarea nueva antes que vincular incorrectamente.
+- No asumas que dos correos del mismo cliente son parte del mismo asunto solo porque comparten remitente.
 
 No añadas explicaciones ni markdown, solo JSON.`;
 }

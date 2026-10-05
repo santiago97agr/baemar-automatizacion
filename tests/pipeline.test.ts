@@ -104,6 +104,54 @@ describe("Pipeline de procesamiento", () => {
     assert.equal(task?.title, "Nueva tarea");
   });
 
+  it("dos correos no relacionados del mismo cliente crean tareas separadas", async () => {
+    const email = uniqueEmail();
+    const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
+    const { id: existingTaskId } = await createTestTask(prisma, clientId, "Declaración IVA 1T", { area: "Fiscal" });
+
+    const classify: (input: { subject: string; from: string; body: string }) => Promise<Record<string, unknown>> = async (
+      input
+    ) => {
+      if (input.subject.includes("Nóminas")) {
+        return {
+          relevance: "action",
+          isNewTask: false,
+          matchedTaskId: existingTaskId,
+          title: "Consulta nóminas",
+          area: "Laboral",
+          priority: "Normal",
+          needsReview: false,
+        };
+      }
+      return {
+        relevance: "action",
+        isNewTask: true,
+        title: input.subject,
+        area: "General",
+        priority: "Normal",
+        needsReview: false,
+      };
+    };
+
+    const res = await processWithMirror(
+      {
+        messageId: `msg-nominas-${Date.now()}`,
+        from: `"Test" <${email}>`,
+        subject: "Nóminas de enero",
+        body: "Consulta sobre nóminas de enero",
+      },
+      classify
+    );
+
+    const comm = await prisma.communication.findUnique({ where: { id: res.communicationId } });
+    assert.notEqual(comm?.taskId, existingTaskId, "No debe vincularse a la tarea existente de área distinta");
+    const tasks = await prisma.task.findMany({ where: { clientId } });
+    assert.equal(tasks.length, 2, "Debe crear una nueva tarea en lugar de fusionar");
+    const newTask = tasks.find((t) => t.id !== existingTaskId);
+    assert.equal(newTask?.area, "Laboral");
+    assert.equal(comm?.taskId, newTask?.id);
+  });
+
   it("información adicional: se vincula a una tarea existente", async () => {
     const email = uniqueEmail();
     const { id: clientId } = await createTestClient(prisma, { name: "Cliente Prueba", email });
