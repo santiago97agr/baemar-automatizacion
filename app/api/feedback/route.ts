@@ -2,7 +2,11 @@ import { NextResponse, NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
-import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { uploadAttachmentToDropbox } from "@/lib/integrations/dropbox";
+import { NotionSync } from "@/lib/sync/notion-sync";
+import { finalizeReview } from "@/lib/processing/finalize-review";
+
+const notionSync = new NotionSync();
 
 const createSchema = z.object({
   communicationId: z.string().min(1),
@@ -40,7 +44,6 @@ export async function POST(request: NextRequest) {
 
     const activity = await prisma.communication.findUnique({
       where: { id: data.communicationId },
-      include: { targets: true },
     });
 
     if (!activity) {
@@ -61,9 +64,11 @@ export async function POST(request: NextRequest) {
       data: { reviewStatus: "reviewed", needsReview: false },
     });
 
-    const existingOk = activity.targets.filter((t) => t.status === "ok").length;
-    if (activity.reviewStatus === "pending" && existingOk === 0) {
-      await pushActivityToIntegrations(activity);
+    if (activity.reviewStatus === "pending") {
+      await finalizeReview(
+        { prisma, uploadAttachment: uploadAttachmentToDropbox, syncNotion: notionSync },
+        data.communicationId
+      );
     }
 
     return NextResponse.json({ feedback }, { status: 201 });

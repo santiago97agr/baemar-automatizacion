@@ -30,7 +30,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       where: { id },
       include: {
         client: true,
-        communications: { orderBy: { receivedAt: "desc" }, include: { files: true } },
+        communications: {
+          orderBy: { receivedAt: "desc" },
+          include: { files: { orderBy: { createdAt: "asc" } } },
+        },
       },
     });
 

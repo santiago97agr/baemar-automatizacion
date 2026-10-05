@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { SENTINEL_CLIENT_NAME } from "../lib/sentinel-client";
 
 const prisma = new PrismaClient();
 
@@ -18,7 +19,29 @@ async function main() {
       create: { name, active: true },
     });
   }
-  console.log("Categories seeded");
+
+  // Cliente sentinela para procesar comunicaciones sin cliente identificado.
+  // Permite crear Task y subir adjuntos sin asignar un cliente real.
+  // No se sincroniza con Notion (notionPageId=null).
+  const existing = await prisma.client.findFirst({
+    where: { name: SENTINEL_CLIENT_NAME, notionPageId: null },
+  });
+  if (!existing) {
+    await prisma.client.create({
+      data: {
+        name: SENTINEL_CLIENT_NAME,
+        aliases: "[]",
+        areas: "[]",
+        status: "Activo",
+        assignee: null,
+        email: null,
+        taxId: null,
+        notionPageId: null,
+      },
+    });
+  }
+
+  console.log("Categories and sentinel client seeded");
 }
 
 main()

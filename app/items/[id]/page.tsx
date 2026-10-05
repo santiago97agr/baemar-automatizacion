@@ -22,14 +22,13 @@ import { relevanceLabel, uploadStatusLabel } from "@/lib/labels";
 export default function CommunicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activity, setActivity] = useState<any>(null);
-  const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const [clientQuery, setClientQuery] = useState("");
   const [clientResults, setClientResults] = useState<any[]>([]);
   const [searchingClients, setSearchingClients] = useState(false);
-  const [assignForm, setAssignForm] = useState({ clientId: "", taskId: "" });
+  const [assignForm, setAssignForm] = useState({ clientId: "" });
   const [taskForm, setTaskForm] = useState({ title: "", area: "", priority: "Normal" });
   const [correctForm, setCorrectForm] = useState({ title: "", type: "", priority: "Normal", description: "", summary: "", feedbackText: "" });
 
@@ -74,10 +73,6 @@ export default function CommunicationDetailPage() {
         summary: d.activity.summary,
         feedbackText: "",
       });
-      if (d.activity.clientId) {
-        const t = await fetch(`/api/tasks?clientId=${d.activity.clientId}`, { credentials: "include" }).then((r) => r.json());
-        setTasks(t.tasks || []);
-      }
     }
     setLoading(false);
   }
@@ -151,7 +146,7 @@ export default function CommunicationDetailPage() {
                     onChange={(e) => {
                       setClientQuery(e.target.value);
                       if (e.target.value.trim().length < 2) {
-                        setAssignForm({ ...assignForm, clientId: "" });
+                        setAssignForm({ clientId: "" });
                       }
                     }}
                     placeholder="Escribe para buscar..."
@@ -168,13 +163,9 @@ export default function CommunicationDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setAssignForm({ ...assignForm, clientId: c.id, taskId: "" });
+                            setAssignForm({ clientId: c.id });
                             setClientQuery(c.name);
                             setClientResults([]);
-                            // Cargar tareas del cliente seleccionado.
-                            fetch(`/api/tasks?clientId=${c.id}`, { credentials: "include" })
-                              .then((r) => r.json())
-                              .then((d) => setTasks(d.tasks || []));
                           }}
                           className={`w-full px-3 py-2 text-left text-sm hover:bg-highlight ${assignForm.clientId === c.id ? "bg-highlight font-medium" : ""}`}
                         >
@@ -189,75 +180,72 @@ export default function CommunicationDetailPage() {
                   <p className="mt-1 text-xs text-ink-3">No se encontraron clientes en Notion.</p>
                 )}
               </Field>
-              <Field label="Tarea (opcional)">
-                <Select value={assignForm.taskId} onChange={(e) => setAssignForm({ ...assignForm, taskId: e.target.value })}>
-                  <option value="">Ninguna</option>
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="flex items-end">
+              <p className="self-end text-meta text-ink-3 sm:col-span-1">
+                Al asignar el cliente se creará la tarea automáticamente.
+              </p>
+              <div className="flex flex-wrap items-end gap-2">
                 <Button onClick={() => doAction("assign", `/api/items/${id}/assign`, assignForm)} loading={actionLoading === "assign"} disabled={!assignForm.clientId}>
                   Asignar
                 </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (!window.confirm("¿Procesar la comunicación sin asignar cliente? Se subirá a Dropbox sin cliente real.")) return;
+                    doAction("process-orphan", `/api/items/${id}/process-orphan`, { reason: "" });
+                  }}
+                  loading={actionLoading === "process-orphan"}
+                  title="Procesa la comunicación asignándola al cliente interno. Crea la tarea y sube los adjuntos sin vincular a un cliente real."
+                >
+                  Procesar sin asignar
+                </Button>
               </div>
             </div>
           )}
 
-          {activity.client && !activity.task && (
-            <div className="grid gap-3 border-t border-line pt-4 sm:grid-cols-5">
-              <Field label="Vincular a tarea existente" className="sm:col-span-3">
-                <Select value="" onChange={(e) => doAction("link-task", `/api/items/${id}/link-task`, { taskId: e.target.value })}>
-                  <option value="">Seleccionar tarea...</option>
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="flex items-end sm:col-span-2">
-                <Button variant="secondary" onClick={() => doAction("create-task", `/api/items/${id}/create-task`, taskForm)} loading={actionLoading === "create-task"}>
-                  <Plus className="mr-1 h-4 w-4" /> Crear tarea
-                </Button>
-              </div>
+          {activity.client && !activity.task && activity.relevance === "action" && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <p className="text-meta text-ink-3">
+                Esta comunicación requiere una tarea. Se creará automáticamente al confirmar la revisión.
+              </p>
+              <Button onClick={() => doAction("materialize", `/api/items/${id}/assign`, { clientId: activity.clientId })} loading={actionLoading === "materialize"}>
+                <Plus className="mr-1 h-4 w-4" /> Materializar tarea
+              </Button>
             </div>
+          )}
+
+          {activity.client && !activity.task && activity.relevance !== "action" && (
+            <details className="border-t border-line pt-4">
+              <summary className="cursor-pointer text-meta text-ink-3">Crear tarea manualmente (opcional)</summary>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  doAction("create-task", `/api/items/${id}/create-task`, taskForm);
+                }}
+                className="mt-3 grid gap-3 sm:grid-cols-5"
+              >
+                <Field label="Título" className="sm:col-span-2">
+                  <Input value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
+                </Field>
+                <Field label="Área">
+                  <Input value={taskForm.area} onChange={(e) => setTaskForm({ ...taskForm, area: e.target.value })} />
+                </Field>
+                <Field label="Prioridad">
+                  <Select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                    <option>Normal</option>
+                    <option>Alta</option>
+                    <option>Urgente</option>
+                  </Select>
+                </Field>
+                <div className="flex items-end">
+                  <Button type="submit" loading={actionLoading === "create-task"}>
+                    <Plus className="mr-1 h-4 w-4" /> Crear
+                  </Button>
+                </div>
+              </form>
+            </details>
           )}
         </CardContent>
       </Card>
-
-      {activity.client && !activity.task && (
-        <Card>
-          <CardHeader><h2 className="text-h3">Crear tarea desde esta comunicación</h2></CardHeader>
-          <CardContent>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                doAction("create-task", `/api/items/${id}/create-task`, taskForm);
-              }}
-              className="grid gap-3 sm:grid-cols-5"
-            >
-              <Field label="Título" className="sm:col-span-2">
-                <Input value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
-              </Field>
-              <Field label="Área">
-                <Input value={taskForm.area} onChange={(e) => setTaskForm({ ...taskForm, area: e.target.value })} />
-              </Field>
-              <Field label="Prioridad">
-                <Select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
-                  <option>Normal</option>
-                  <option>Alta</option>
-                  <option>Urgente</option>
-                </Select>
-              </Field>
-              <div className="flex items-end">
-                <Button type="submit" loading={actionLoading === "create-task"}>
-                  <Plus className="mr-1 h-4 w-4" /> Crear
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
 
       <Card>
         <CardHeader><h2 className="text-h3">Correo original</h2></CardHeader>

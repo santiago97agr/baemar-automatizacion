@@ -31,11 +31,20 @@ export class NotionSync {
 
     let clientPageId: string | undefined;
     if (communication.client && communication.clientId) {
-      clientPageId = await this.ensureClient(communication.client, clientsDbId, prisma);
+      try {
+        clientPageId = await this.ensureClient(communication.client, clientsDbId, prisma);
+      } catch (err) {
+        // Cliente sentinela o sin página de Notion: sincronizamos sin cliente.
+        if (!(err instanceof Error) || err.message !== "CLIENT_HAS_NO_NOTION_PAGE") {
+          throw err;
+        }
+      }
     }
 
     let taskPageId: string | undefined;
-    if (communication.task && communication.taskId && clientPageId) {
+    if (communication.task && communication.taskId) {
+      // clientPageId puede ser undefined cuando la comunicación no tiene cliente real
+      // (sentinela). En ese caso creamos la tarea en Notion sin relación Cliente.
       taskPageId = await this.ensureTask(communication.task, clientPageId, tasksDbId, prisma);
     }
 
@@ -50,7 +59,13 @@ export class NotionSync {
     await this.recordTarget(prisma, communication.id, commPageId, "ok");
   }
 
-  private async ensureClient(client: Client, dbId: string, prisma: PrismaClient): Promise<string> {
+  private async ensureClient(
+    client: Client,
+    dbId: string,
+    prisma: PrismaClient
+  ): Promise<string> {
+    void dbId;
+    void prisma;
     if (client.notionPageId) {
       try {
         await notion.pages.update({
@@ -63,16 +78,17 @@ export class NotionSync {
       }
     }
 
-    const page = (await notion.pages.create({
-      parent: { database_id: dbId },
-      properties: clientProperties(client),
-    })) as PageObjectResponse;
-
-    await prisma.client.update({ where: { id: client.id }, data: { notionPageId: page.id } });
-    return page.id;
+    // Cliente sentinela o sin página de Notion: no creamos nada en Notion.
+    // La comunicación se sincronizará sin propiedad "Cliente".
+    throw new Error("CLIENT_HAS_NO_NOTION_PAGE");
   }
 
-  private async ensureTask(task: Task, clientPageId: string, dbId: string, prisma: PrismaClient): Promise<string> {
+  private async ensureTask(
+    task: Task,
+    clientPageId: string | undefined,
+    dbId: string,
+    prisma: PrismaClient
+  ): Promise<string> {
     if (task.notionPageId) {
       try {
         await notion.pages.update({
@@ -165,10 +181,9 @@ function clientProperties(client: Client): Record<string, any> {
   };
 }
 
-function taskProperties(task: Task, clientPageId: string): Record<string, any> {
+function taskProperties(task: Task, clientPageId?: string): Record<string, any> {
   const props: Record<string, any> = {
     Nombre: title(task.title),
-    Cliente: relation(clientPageId),
     Área: select(task.area ?? ""),
     Responsable: richText(task.assignee ?? ""),
     Estado: select(task.status),
@@ -179,6 +194,9 @@ function taskProperties(task: Task, clientPageId: string): Record<string, any> {
     "Valoracion economica": task.economicValue != null ? { number: task.economicValue } : { number: null },
     "External ID": richText(task.id),
   };
+  if (clientPageId) {
+    props.Cliente = relation(clientPageId);
+  }
   if (task.dueDate) {
     props["Vencimiento"] = date(task.dueDate);
   }

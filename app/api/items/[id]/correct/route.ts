@@ -2,8 +2,9 @@ import { NextResponse, NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
-import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { uploadAttachmentToDropbox } from "@/lib/integrations/dropbox";
 import { NotionSync } from "@/lib/sync/notion-sync";
+import { finalizeReview } from "@/lib/processing/finalize-review";
 
 const schema = z.object({
   title: z.string().min(1),
@@ -55,40 +56,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
     }
 
-    const activityWithTargets = await prisma.communication.findUnique({
-      where: { id },
-      include: { targets: true },
-    });
-
-    if (!activityWithTargets) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-
-    const existingOk = activityWithTargets.targets.filter((t) => t.status === "ok").length;
-    if (existingOk === 0) {
-      await pushActivityToIntegrations(activityWithTargets);
-      try {
-        await notionSync.syncFromDecision(
-          { prisma },
-          {
-            communication: activityWithTargets,
-            task: activityWithTargets.taskId ? { id: activityWithTargets.taskId, clientId: activityWithTargets.clientId || "" } : undefined,
-            isNewTask: false,
-            isNewClient: false,
-          }
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Notion sync error";
-        await prisma.errorLog.create({ data: { source: "sync", message: msg, communicationId: id } });
-      }
-    }
+    const finalizeResult = await finalizeReview(
+      { prisma, uploadAttachment: uploadAttachmentToDropbox, syncNotion: notionSync },
+      id
+    );
 
     const fullActivity = await prisma.communication.findUnique({
       where: { id },
       include: { targets: true, feedback: { orderBy: { createdAt: "desc" } } },
     });
 
-    return NextResponse.json({ activity: fullActivity });
+    return NextResponse.json({
+      activity: fullActivity,
+      task: finalizeResult.task,
+      isNewTask: finalizeResult.isNewTask,
+      errors: finalizeResult.errors,
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.issues }, { status: 400 });

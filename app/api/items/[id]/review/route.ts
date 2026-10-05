@@ -1,8 +1,9 @@
 import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isValidBasicAuth, basicAuthResponse } from "@/lib/auth";
-import { pushActivityToIntegrations } from "@/lib/integrations/push";
+import { uploadAttachmentToDropbox } from "@/lib/integrations/dropbox";
 import { NotionSync } from "@/lib/sync/notion-sync";
+import { finalizeReview } from "@/lib/processing/finalize-review";
 
 const notionSync = new NotionSync();
 
@@ -31,28 +32,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       include: { targets: true },
     });
 
-    const existingTargets = activity.targets.filter((t) => t.status !== "error").length;
-    if (existingTargets === 0) {
-      await pushActivityToIntegrations(activity);
-      try {
-        await notionSync.syncFromDecision(
-          { prisma },
-          {
-            communication: activity,
-            task: activity.taskId ? { id: activity.taskId, clientId: activity.clientId || "" } : undefined,
-            isNewTask: false,
-            isNewClient: false,
-          }
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Notion sync error";
-        await prisma.errorLog.create({ data: { source: "sync", message: msg, communicationId: id } });
-      }
-      activity = await prisma.communication.findUnique({
-        where: { id },
-        include: { targets: true },
-      });
-    }
+    await finalizeReview(
+      { prisma, uploadAttachment: uploadAttachmentToDropbox, syncNotion: notionSync },
+      id
+    );
+
+    activity = await prisma.communication.findUnique({
+      where: { id },
+      include: { targets: true },
+    });
 
     return NextResponse.json({ activity });
   } catch (err) {

@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   callAI,
   classifiedResponseSchema,
+  normalizeArea,
   type ClassifiedResponse,
   type ClientHint,
   type OpenTaskHint,
@@ -64,8 +65,9 @@ export const classifyEmail: ClassifyFn = async (input, identifyResult, prisma) =
   const cleaned = aiText.replace(/```json|```/g, "").trim();
   const raw = JSON.parse(cleaned);
   const parsed = classifiedResponseSchema.parse(raw);
+  const normalized = { ...parsed, area: normalizeArea(parsed.area) ?? parsed.area };
 
-  return applyGuards(parsed, identifyResult, matchedClient);
+  return applyGuards(normalized, identifyResult, matchedClient);
 };
 
 function parseJsonArray(value: string): string[] {

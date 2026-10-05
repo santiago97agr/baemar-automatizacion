@@ -8,24 +8,17 @@ import { History, Paperclip } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Field } from "@/components/ui/field";
-import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { taskStatusLabel, uploadStatusLabel } from "@/lib/labels";
-import { formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { PriorityBadge } from "@/components/status-badges";
-
-const statusOptions = ["Pendiente", "En curso", "Esperando cliente", "Esperando tercero", "Terminada"];
-const priorityOptions = ["Normal", "Alta", "Urgente"];
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -40,19 +33,6 @@ export default function TaskDetailPage() {
       setTask(d.task);
     }
     setLoading(false);
-  }
-
-  async function updateField(field: string, value: unknown) {
-    if (!id) return;
-    setSaving(true);
-    const res = await fetch(`/api/tasks/${id}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    });
-    setSaving(false);
-    if (res.ok) load();
   }
 
   async function retryAttachment(attachmentId: string) {
@@ -80,16 +60,7 @@ export default function TaskDetailPage() {
         <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <p className="text-meta text-ink-3">Estado</p>
-            <div className="mt-1 flex items-center gap-2">
-              <Select value={task.status} onChange={(e) => updateField("status", e.target.value)}>
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {taskStatusLabel(s)}
-                  </option>
-                ))}
-              </Select>
-              {saving && <span className="text-meta text-ink-3">guardando...</span>}
-            </div>
+            <p className="mt-1 text-body font-medium">{taskStatusLabel(task.status)}</p>
           </div>
           <div>
             <p className="text-meta text-ink-3">Prioridad</p>
@@ -113,37 +84,22 @@ export default function TaskDetailPage() {
           <h2 className="text-h3">Detalle y seguimiento</h2>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Responsable">
-            <Input
-              value={task.assignee || ""}
-              onBlur={(e) => updateField("assignee", e.target.value || null)}
-              placeholder="Sin asignar"
-            />
-          </Field>
-          <Field label="Vencimiento">
-            <Input
-              type="date"
-              value={task.dueDate ? task.dueDate.slice(0, 10) : ""}
-              onChange={(e) => updateField("dueDate", e.target.value ? new Date(e.target.value).toISOString() : null)}
-            />
-          </Field>
-          <Field label="Valoración económica">
-            <Input
-              type="number"
-              value={task.economicValue ?? ""}
-              onBlur={(e) => updateField("economicValue", e.target.value ? Number(e.target.value) : null)}
-              placeholder="0,00"
-            />
-          </Field>
-          <Field label="Prioridad">
-            <Select value={task.priority} onChange={(e) => updateField("priority", e.target.value)}>
-              {priorityOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <div>
+            <p className="text-meta text-ink-3">Responsable</p>
+            <p className="mt-1 text-body font-medium">{task.assignee || "Sin asignar"}</p>
+          </div>
+          <div>
+            <p className="text-meta text-ink-3">Vencimiento</p>
+            <p className="mt-1 text-body font-medium">{task.dueDate ? formatDate(task.dueDate) : "—"}</p>
+          </div>
+          <div>
+            <p className="text-meta text-ink-3">Valoración económica</p>
+            <p className="mt-1 text-body font-medium">{task.economicValue ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-meta text-ink-3">Resumen</p>
+            <p className="mt-1 text-body whitespace-pre-wrap">{task.summary || "—"}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -190,36 +146,44 @@ export default function TaskDetailPage() {
           </h2>
         </CardHeader>
         <CardContent className="p-0">
-          {task.attachments.length === 0 ? (
-            <div className="p-6">
-              <EmptyState icon={<Paperclip className="h-8 w-8" />} title="Sin documentos" description="No hay adjuntos subidos para esta tarea." />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableHead>Fichero</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Intentos</TableHead>
-                <TableHead />
-              </TableHeader>
-              <TableBody>
-                {task.attachments.map((a: any) => (
-                  <TableRow key={a.id}>
-                    <TableCell>{a.filename}</TableCell>
-                    <TableCell>{uploadStatusLabel(a.uploadStatus)}</TableCell>
-                    <TableCell>{a.attempts}</TableCell>
-                    <TableCell>
-                      {a.uploadStatus !== "uploaded" && (
-                        <Button variant="secondary" size="sm" onClick={() => retryAttachment(a.id)}>
-                          Reintentar
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          {(() => {
+            const docs = (task.communications || []).flatMap((c: any) =>
+              (c.files || []).map((f: any) => ({ ...f, _commId: c.id }))
+            );
+            if (docs.length === 0) {
+              return (
+                <div className="p-6">
+                  <EmptyState icon={<Paperclip className="h-8 w-8" />} title="Sin documentos" description="No hay adjuntos subidos para esta tarea." />
+                </div>
+              );
+            }
+            return (
+              <Table>
+                <TableHeader>
+                  <TableHead>Fichero</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Intentos</TableHead>
+                  <TableHead />
+                </TableHeader>
+                <TableBody>
+                  {docs.map((a: any) => (
+                    <TableRow key={a.id}>
+                      <TableCell>{a.filename}</TableCell>
+                      <TableCell>{uploadStatusLabel(a.uploadStatus)}</TableCell>
+                      <TableCell>{a.attempts}</TableCell>
+                      <TableCell>
+                        {a.uploadStatus !== "uploaded" && (
+                          <Button variant="secondary" size="sm" onClick={() => retryAttachment(a.id)}>
+                            Reintentar
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            );
+          })()}
         </CardContent>
       </Card>
     </div>

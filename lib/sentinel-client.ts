@@ -1,0 +1,1 @@
+export const SENTINEL_CLIENT_NAME = "Interno / Sin asignar";

@@ -71,6 +71,50 @@ describe("Notion clients mirror", () => {
     assert.equal(client.name, "Renombrado");
     assert.equal(client.email, "new@example.com");
   });
+
+  it("extrae emails de formatos con nombre y paréntesis", async () => {
+    const page = {
+      object: "page",
+      id: `page-rich-${Date.now()}`,
+      properties: {
+        Nombre: { type: "title", title: [{ plain_text: "Cliente AB" }] },
+        Emails: {
+          type: "rich_text",
+          rich_text: [{ plain_text: "Cliente Empresa <ab@empresa.com>, cd@empresa.com (CFO)" }],
+        },
+        "NIF/CIF": { type: "rich_text", rich_text: [] },
+        Estado: { type: "select", select: { name: "Activo" } },
+        Áreas: { type: "multi_select", multi_select: [] },
+      },
+    } as unknown as Parameters<typeof upsertClientFromNotionPage>[1];
+
+    const client = await upsertClientFromNotionPage(prisma, page);
+    assert.equal(client.email, "ab@empresa.com");
+
+    const refreshed = await upsertClientFromNotionPage(prisma, page);
+    assert.equal(refreshed.id, client.id);
+    assert.equal(refreshed.email, "ab@empresa.com");
+  });
+
+  it("encuentra email embebido en campos distintos a Emails", async () => {
+    const page = {
+      object: "page",
+      id: `page-embed-${Date.now()}`,
+      properties: {
+        Nombre: { type: "title", title: [{ plain_text: "Cliente Embebido" }] },
+        Emails: { type: "rich_text", rich_text: [] },
+        Responsable: {
+          type: "rich_text",
+          rich_text: [{ plain_text: "Contacto: embebido@ejemplo.com (CEO)" }],
+        },
+        Estado: { type: "select", select: { name: "Activo" } },
+        Áreas: { type: "multi_select", multi_select: [] },
+      },
+    } as unknown as Parameters<typeof upsertClientFromNotionPage>[1];
+
+    const client = await upsertClientFromNotionPage(prisma, page);
+    assert.equal(client.email, "embebido@ejemplo.com");
+  });
 });
 
 describe("identify-client con Notion", () => {

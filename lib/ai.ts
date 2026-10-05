@@ -23,19 +23,56 @@ export type AiResponse = z.infer<typeof aiResponseSchema>;
 
 export const classifiedResponseSchema = z.object({
   relevance: z.enum(["irrelevant", "info", "action"]),
-  area: z.enum(areaValues).optional(),
-  priority: z.enum(priorityValues).optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  summary: z.string().optional(),
-  clientName: z.string().optional(),
-  matchedTaskId: z.string().optional(),
-  isNewTask: z.boolean().optional(),
-  needsReview: z.boolean().optional(),
-  reviewReason: z.string().optional(),
+  area: z.string().nullish(),
+  priority: z.enum(priorityValues).nullish(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  summary: z.string().nullish(),
+  clientName: z.string().nullish(),
+  matchedTaskId: z.string().nullish(),
+  isNewTask: z.boolean().nullish(),
+  needsReview: z.boolean().nullish(),
+  reviewReason: z.string().nullish(),
 });
 
 export type ClassifiedResponse = z.infer<typeof classifiedResponseSchema>;
+
+const areaSynonyms: Record<string, string> = {
+  "rrhh": "Laboral",
+  "recursos humanos": "Laboral",
+  "laboral": "Laboral",
+  "trabajo": "Laboral",
+  "tributaria": "Fiscal",
+  "fiscal": "Fiscal",
+  "impuestos": "Fiscal",
+  "tributario": "Fiscal",
+  "contabilidad": "Contable",
+  "contable": "Contable",
+  "contables": "Contable",
+  "legal": "Jurídico-Mercantil",
+  "mercantil": "Jurídico-Mercantil",
+  "juridico": "Jurídico-Mercantil",
+  "jurídico": "Jurídico-Mercantil",
+  "societario": "Jurídico-Mercantil",
+  "jurídico-mercantil": "Jurídico-Mercantil",
+  "juridico-mercantil": "Jurídico-Mercantil",
+  "administracion": "Administración",
+  "administración": "Administración",
+  "administrativa": "Administración",
+};
+
+export function normalizeArea(area: string | null | undefined): string | undefined {
+  if (!area) return undefined;
+  const key = area.trim().toLowerCase();
+  if (!key) return undefined;
+  const mapped = areaSynonyms[key];
+  if (mapped) return mapped;
+  const capitalized = area.trim().charAt(0).toUpperCase() + area.trim().slice(1);
+  if (areaValues.includes(capitalized as (typeof areaValues)[number])) {
+    return capitalized;
+  }
+  return undefined;
+}
 
 export async function callAI(prompt: string): Promise<string> {
   const provider = process.env.AI_PROVIDER || "openai";

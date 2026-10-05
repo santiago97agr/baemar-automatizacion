@@ -109,17 +109,49 @@ export async function processCommunication(deps: PipelineDeps, rawInput: unknown
   const errors: string[] = [];
 
   try {
-    // 2. Identify client.
+    // 2. Adjuntos: registrar metadatos antes de clasificar para que existan
+    // aunque la IA falle y haya que crearlos en la corrección humana.
+    await createAttachmentRecords({ prisma, uploadAttachment }, communication.id, input.attachments);
+
+    // 3. Identify client.
     const identifyResult = await identifyClient(input.from);
 
-    // 3. Classify.
-    const classification = await classify(
-      { subject: input.subject, from: input.from, body: input.body },
-      identifyResult,
-      prisma
-    );
+    // 4. Classify.
+    let classification;
+    try {
+      classification = await classify(
+        { subject: input.subject, from: input.from, body: input.body },
+        identifyResult,
+        prisma
+      );
+    } catch (classifyErr) {
+      if (classifyErr instanceof z.ZodError) {
+        const summary = classifyErr.issues
+          .map((i) => `${i.path.join(".") || "root"}: ${i.message}`)
+          .join("; ");
+        const final = await prisma.communication.update({
+          where: { id: communication.id },
+          data: {
+            needsReview: true,
+            reviewReason: `Respuesta de IA inválida: ${summary}`,
+            reviewStatus: "pending",
+            relevance: "info",
+            processingStatus: "error",
+            status: "error",
+            errorMessage: `ai_validation_failed: ${summary}`,
+          },
+        });
+        await logError(prisma, {
+          source: "ia",
+          message: `ai_validation_failed: ${summary}`,
+          communicationId: communication.id,
+        });
+        return { ...buildResult(final, ["ai_validation_failed"]), errors: ["ai_validation_failed"] };
+      }
+      throw classifyErr;
+    }
 
-    // 4. Decide.
+    // 5. Decide.
     const decision = await decide(
       { prisma },
       { communicationId: communication.id, subject: input.subject, channel: input.channel, from: input.from },
@@ -127,11 +159,10 @@ export async function processCommunication(deps: PipelineDeps, rawInput: unknown
       classification as ClassifiedResult
     );
 
-    // 5. Attachments.
-    await createAttachmentRecords({ prisma, uploadAttachment }, communication.id, input.attachments);
+    // 6. Adjuntos: subir los pendientes (si procede).
     await uploadPendingAttachments({ prisma, uploadAttachment }, decision.communication, classification.relevance);
 
-    // 6. Sync Notion.
+    // 7. Sync Notion.
     if (syncNotion && !decision.communication.needsReview) {
       try {
         await syncNotion.syncFromDecision(
@@ -150,7 +181,7 @@ export async function processCommunication(deps: PipelineDeps, rawInput: unknown
       }
     }
 
-    // 7. Finalize.
+    // 8. Finalize.
     const final = await prisma.communication.update({
       where: { id: communication.id },
       data: { processingStatus: "done" },
