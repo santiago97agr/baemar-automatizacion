@@ -80,7 +80,7 @@ La app **lee** clientes de esta DB. Crea, edita y elimina clientes directamente 
 | Nombre | Title | |
 | Cliente | Relation | → CLIENTES |
 | Área | Select | mismas áreas que CLIENTES |
-| Responsable | Rich text | |
+| Responsable | People | |
 | Estado | Select | `Pendiente`, `En curso`, `Esperando cliente`, `Esperando tercero`, `Terminada` |
 | Prioridad | Select | `Normal`, `Alta`, `Urgente` |
 | Fecha de entrada | Date | |

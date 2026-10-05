@@ -185,7 +185,6 @@ function taskProperties(task: Task, clientPageId?: string): Record<string, any> 
   const props: Record<string, any> = {
     Nombre: title(task.title),
     Área: select(task.area ?? ""),
-    Responsable: richText(task.assignee ?? ""),
     Estado: select(task.status),
     Prioridad: select(task.priority),
     "Fecha de entrada": date(task.entryDate),
