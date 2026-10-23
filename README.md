@@ -33,7 +33,7 @@ Copia `.env.example` a `.env` y completa:
 
 | Variable | Descripción |
 |----------|-------------|
-| `DATABASE_URL` | SQLite relativa a `prisma/` (`file:./dev.db`). |
+| `DATABASE_URL` | SQLite. En local: `file:./dev.db`. En producción con volumen persistente: `file:/app/data/baemar.db`. |
 | `NOTION_TOKEN` | Token de integración de Notion. |
 | `NOTION_CLIENTS_DB_ID` | ID de la base de datos CLIENTES. |
 | `NOTION_TASKS_DB_ID` | ID de la base de datos TAREAS. |

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:prod": "mkdir -p /app/data && npx prisma migrate deploy && npx prisma db seed && next start",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts"
