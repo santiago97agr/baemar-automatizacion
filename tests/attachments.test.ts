@@ -55,4 +55,36 @@ describe("Subida de adjuntos", () => {
     await uploadPendingAttachments({ prisma, uploadAttachment: upload }, communication, "action");
     assert.equal(calls, 1); // No se reintenta porque ya está uploaded
   });
+
+  it("sube adjuntos sin cliente a la carpeta sin-cliente", async () => {
+    const communication = await prisma.communication.create({
+      data: {
+        messageId: "msg-orphan",
+        channel: "Email",
+        from: "unknown@example.com",
+        subject: "Adjunto sin cliente",
+        body: "",
+        clientId: null,
+      },
+    });
+    await prisma.attachment.create({
+      data: {
+        communicationId: communication.id,
+        filename: "doc.pdf",
+        contentBase64: "SGVsbG8=",
+        uploadStatus: "pending",
+      },
+    });
+
+    let receivedSlug = "";
+    const upload = async (_attachment: unknown, clientSlug: string) => {
+      receivedSlug = clientSlug;
+      return { status: "uploaded" as const, dropboxPath: `/baemar/${clientSlug}/doc.pdf` };
+    };
+
+    await uploadPendingAttachments({ prisma, uploadAttachment: upload }, communication, "action");
+    assert.equal(receivedSlug, "sin-cliente");
+    const updated = await prisma.attachment.findFirst({ where: { communicationId: communication.id } });
+    assert.equal(updated?.uploadStatus, "uploaded");
+  });
 });

@@ -116,20 +116,16 @@ export async function uploadAttachmentToDropbox(
   }
 
   const root = process.env.DROPBOX_ROOT_FOLDER || "baemar";
-  const folderPath = `/${root}/${clientSlug}/${dateFolder}/${attachment.communicationId.slice(0, 8)}`;
-  const filePath = `${folderPath}/${attachment.filename}`;
+  const folderPath = `/${root}/${clientSlug}/${dateFolder}`;
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = `${folderPath}/${ts}-${attachment.filename}`;
 
-  // Reintento idempotente: si ya tenemos este path, verificamos que exista.
-  if (attachment.dropboxPath === filePath) {
+  // Si el attachment tenía un dropboxPath previo (reproceso), lo borramos para no acumular duplicados.
+  if (attachment.dropboxPath && attachment.dropboxPath !== filePath) {
     try {
-      await dbx.filesGetMetadata({ path: filePath });
-      return { status: "uploaded", dropboxPath: filePath };
-    } catch (err: any) {
-      const tag = err?.error?.error?.[".tag"] || err?.error?.[".tag"];
-      if (tag !== "not_found") {
-        return { status: "error", errorMessage: extractError(err) };
-      }
-      // no existe realmente: continuar para subir
+      await dbx.filesDeleteV2({ path: attachment.dropboxPath });
+    } catch {
+      // No bloqueamos la subida si el borrado falla (puede que ya no existiera).
     }
   }
 
@@ -139,7 +135,7 @@ export async function uploadAttachmentToDropbox(
   }
 
   try {
-    await ensureFolders(dbx, [rootFolder(root), `/${root}/${clientSlug}`, `/${root}/${clientSlug}/${dateFolder}`, folderPath]);
+    await ensureFolders(dbx, [rootFolder(root), `/${root}/${clientSlug}`, folderPath]);
   } catch (err: any) {
     return { status: "error", errorMessage: `Error creando carpetas: ${extractError(err)}` };
   }
@@ -172,7 +168,10 @@ async function ensureFolders(dbx: Dropbox, paths: string[]): Promise<void> {
       await dbx.filesCreateFolderV2({ path, autorename: false });
     } catch (err: any) {
       const tag = err?.error?.error?.[".tag"] || err?.error?.[".tag"];
-      if (tag !== "conflict") throw err;
+      const status = err?.status;
+      // 409 = la carpeta ya existe (cualquier variante de tag conflict). No abortamos.
+      if (tag === "conflict" || tag === "path_conflict" || status === 409) continue;
+      throw err;
     }
   }
 }

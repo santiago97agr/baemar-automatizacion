@@ -163,7 +163,7 @@ model Category {
 
 model ErrorLog {
   id              String         @id @default(cuid())
-  source          String         // n8n | ia | notion | processing | erp | dropbox | sync
+  source          String         // n8n | ia | notion | processing | erp | dropbox | sync | auth
   message         String
   communicationId String?        @map("activityId")
   communication   Communication? @relation(fields: [communicationId], references: [id], onDelete: SetNull)

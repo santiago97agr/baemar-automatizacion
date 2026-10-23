@@ -101,10 +101,14 @@ Stack: Next.js 16.3.5, React 19.2.8, TypeScript 5, Tailwind CSS 4, Prisma 6 (SQL
 
 Two separate auth layers:
 
-1. **UI routes** — Basic Auth via `proxy.ts` (Next.js 16 proxy) and `lib/auth.ts`. Credentials come from `AUTH_USER` / `AUTH_PASSWORD`.
-2. **Internal API routes** (`/api/process`, `/api/context`, `/api/webhook`, `/api/errors`) — bypass Basic Auth in the proxy and validate `x-internal-token` against `INTERNAL_API_TOKEN` in each route.
+1. **UI routes** — cookie-based session via `baemar_session`, signed with `AUTH_SECRET`. The login form lives at `/login` and posts to `/api/auth/login`; logout is handled by `/api/auth/logout`. The proxy (`proxy.ts`) redirects unauthenticated HTML requests to `/login` and returns 401 for unauthenticated API requests. Credentials are still compared against `AUTH_USER` / `AUTH_PASSWORD`.
+2. **Internal API routes** (`/api/process`, `/api/context`, `/api/webhook`, `/api/errors`) — bypass UI auth in the proxy and validate `x-internal-token` against `INTERNAL_API_TOKEN` in each route.
 
-`proxy.ts` is the source of truth for the UI auth boundary; keep its `INTERNAL_PATHS` list updated.
+`proxy.ts` is the source of truth for the UI auth boundary; keep its `INTERNAL_PATHS` and `PUBLIC_PATHS` lists updated.
+
+- `AUTH_SECRET` must be at least 32 characters in production; rotating it invalidates all active sessions.
+- `AUTH_FALLBACK="basic"` optionally re-enables Basic Auth as a fallback for legacy integrations.
+- Login rate limit: 5 failed attempts per 15 minutes per IP, enforced in `/api/auth/login`.
 
 ### App architecture
 

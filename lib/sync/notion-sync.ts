@@ -25,7 +25,7 @@ export class NotionSync {
 
     const communication = await prisma.communication.findUnique({
       where: { id: decision.communication.id },
-      include: { client: true, task: true },
+      include: { client: true, task: true, files: { where: { uploadStatus: "uploaded" } } },
     });
     if (!communication) throw new Error("Comunicación no encontrada");
 
@@ -203,10 +203,14 @@ function taskProperties(task: Task, clientPageId?: string): Record<string, any> 
 }
 
 function communicationProperties(
-  communication: Communication,
+  communication: Communication & { files?: { filename: string; dropboxPath: string | null }[] },
   clientPageId?: string,
   taskPageId?: string
 ): Record<string, any> {
+  const attachmentLines = (communication.files ?? [])
+    .filter((a) => a.dropboxPath)
+    .map((a) => `${a.filename}: ${a.dropboxPath}`)
+    .join("\n");
   const props: Record<string, any> = {
     Asunto: title(communication.subject),
     Fecha: date(communication.receivedAt),
@@ -215,6 +219,8 @@ function communicationProperties(
     Remitente: richText(communication.from),
     Destinatario: richText(communication.to ?? ""),
     "Resumen IA": richText(communication.summary),
+    Contenido: richTextChunked(communication.body || ""),
+    "Adjuntos Dropbox": richText(attachmentLines),
     Referencia: richText([communication.messageId, communication.externalRef].filter(Boolean).join(" | ")),
     "Requiere actuación": { checkbox: communication.relevance === "action" },
     "External ID": richText(communication.id),
@@ -235,6 +241,17 @@ function title(text: string) {
 function richText(text: string) {
   if (!text) return { rich_text: [] };
   return { rich_text: [{ text: { content: text } }] };
+}
+
+const RICH_TEXT_MAX_CHUNK = 1900;
+
+function richTextChunked(text: string): { rich_text: { text: { content: string } }[] } {
+  if (!text) return { rich_text: [] };
+  const chunks: { text: { content: string } }[] = [];
+  for (let i = 0; i < text.length; i += RICH_TEXT_MAX_CHUNK) {
+    chunks.push({ text: { content: text.slice(i, i + RICH_TEXT_MAX_CHUNK) } });
+  }
+  return { rich_text: chunks };
 }
 
 function select(name: string) {

@@ -74,16 +74,9 @@ export async function uploadPendingAttachments(
     return prisma.attachment.findMany({ where: { communicationId: communication.id } });
   }
 
-  // Sin cliente identificado: se retienen hasta la revisión manual.
-  if (!communication.clientId) {
-    await prisma.attachment.updateMany({
-      where: { communicationId: communication.id, uploadStatus: "pending" },
-      data: { errorMessage: "Pendiente de asignación de cliente" },
-    });
-    return prisma.attachment.findMany({ where: { communicationId: communication.id } });
-  }
-
-  const client = await prisma.client.findUnique({ where: { id: communication.clientId } });
+  const client = communication.clientId
+    ? await prisma.client.findUnique({ where: { id: communication.clientId } })
+    : null;
   const clientSlug = slug(client?.name || "sin-cliente");
   const dateFolder = folderDate(communication.receivedAt);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import { UserMenu } from "@/components/user-menu";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -48,7 +50,10 @@ export function AppSidebar() {
     <>
       {/* Mobile header */}
       <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden">
-        <span className="font-semibold text-ink">Gestoría</span>
+        <div className="flex items-center gap-2">
+          <Image src="/baemar-logo.png" alt="BAEMAR" width={28} height={28} className="h-7 w-auto" />
+          <span className="font-semibold text-ink">Automatización</span>
+        </div>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -81,9 +86,9 @@ export function AppSidebar() {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <div className="flex flex-col">
-              <span className="font-semibold text-ink">Gestoría</span>
-              <span className="text-meta text-ink-3">Automatización</span>
+            <div className="flex items-center gap-2">
+              <Image src="/baemar-logo.png" alt="BAEMAR" width={32} height={32} className="h-8 w-auto" />
+              <span className="font-semibold text-ink">Automatización</span>
             </div>
             <button
               type="button"
@@ -126,6 +131,8 @@ export function AppSidebar() {
               })}
             </ul>
           </nav>
+
+          <UserMenu />
         </div>
       </aside>
     </>
